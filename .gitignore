@@ -1,0 +1,23 @@
+# .NET MAUI / Xamarin
+bin/
+obj/
+*.user
+*.userprefs
+*.suo
+*.sln.docstates
+*.csproj.user
+*.apk
+*.aab
+*.keystore
+*.nupkg
+
+# Visual Studio
+.vs/
+*.vsconfig
+
+# macOS
+.DS_Store
+
+# Other
+*.log
+packages/
