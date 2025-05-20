@@ -35,7 +35,14 @@
 		<!-- Release mode settings -->
 		<PropertyGroup Condition="'$(Configuration)'=='Release'">
 			<AndroidLinkMode>None</AndroidLinkMode>
-		</PropertyGroup>	
+		</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)'=='Release'">
+		<AndroidKeyStore>True</AndroidKeyStore>
+		<AndroidSigningKeyStore>DMMSAlert.keystore</AndroidSigningKeyStore>
+		<AndroidSigningStorePass>336591</AndroidSigningStorePass>
+		<AndroidSigningKeyAlias>DMMSAlert</AndroidSigningKeyAlias>
+		<AndroidSigningKeyPass>336591</AndroidSigningKeyPass>
+	</PropertyGroup>	
 	<ItemGroup>
 		<!-- App Icon -->
 		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
