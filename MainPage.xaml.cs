@@ -1,4 +1,6 @@
-﻿namespace AviationApp;
+﻿using Android.Content;
+
+namespace AviationApp;
 
 public partial class MainPage : ContentPage
 {
@@ -20,5 +22,10 @@ public partial class MainPage : ContentPage
 
 		SemanticScreenReader.Announce(CounterBtn.Text);
 	}
+    private void StartLocationService()
+    {
+        var intent = new Intent(Android.App.Application.Context, typeof(AviationApp.Services.LocationService));
+        Android.App.Application.Context.StartForegroundService(intent);
+    }
 }
 
