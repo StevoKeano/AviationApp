@@ -42,6 +42,16 @@
 		<AndroidSigningStorePass>336591</AndroidSigningStorePass>
 		<AndroidSigningKeyAlias>DMMSAlert</AndroidSigningKeyAlias>
 		<AndroidSigningKeyPass>336591</AndroidSigningKeyPass>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
+		<AndroidKeyStore>True</AndroidKeyStore>
+		<AndroidSigningKeyStore>DMMSAlert.keystore</AndroidSigningKeyStore>
+		<AndroidSigningStorePass>336591</AndroidSigningStorePass>
+		<AndroidSigningKeyAlias>DMMSAlert</AndroidSigningKeyAlias>
+		<AndroidSigningKeyPass>336591</AndroidSigningKeyPass>
+	</PropertyGroup>	
+	<PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net9.0-android|AnyCPU'">
+	  <AndroidKeyStore>True</AndroidKeyStore>
 	</PropertyGroup>	
 	<ItemGroup>
 		<!-- App Icon -->
