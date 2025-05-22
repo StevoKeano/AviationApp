@@ -55,55 +55,75 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     {
         InitializeComponent();
         BindingContext = this;
-        WeakReferenceMessenger.Default.Register<LocationMessage>(this, async (recipient, message) =>
+        // Register with strong reference to ensure persistence
+        WeakReferenceMessenger.Default.Register<LocationMessage>(this, (recipient, message) =>
         {
-            var androidLocation = message.Location;
-            var updateTime = message.UpdateTime;
-            if (androidLocation == null)
+            try
             {
-                Log.Error("MainPage", "Received null location");
-                await DisplayAlert("Location Error", "Unable to retrieve location data.", "OK");
-                return;
+                Log.Debug("MainPage", "Received LocationMessage");
+                var androidLocation = message.Location;
+                var updateTime = message.UpdateTime;
+                if (androidLocation == null)
+                {
+                    Log.Error("MainPage", "Received null location");
+                    MainThread.BeginInvokeOnMainThread(async () =>
+                    {
+                        await DisplayAlert("Location Error", "Unable to retrieve location data.", "OK");
+                    });
+                    return;
+                }
+
+                var location = new Microsoft.Maui.Devices.Sensors.Location
+                {
+                    Latitude = androidLocation.Latitude,
+                    Longitude = androidLocation.Longitude,
+                    Altitude = androidLocation.HasAltitude ? androidLocation.Altitude : null,
+                    Speed = androidLocation.HasSpeed ? androidLocation.Speed : null
+                };
+
+                float speedKmh = (float)(location.Speed.GetValueOrDefault() * 3.6);
+                LatitudeText = $"Latitude: {location.Latitude:F6}";
+                LongitudeText = $"Longitude: {location.Longitude:F6}";
+                AltitudeText = $"Altitude: {location.Altitude?.ToString("F1") ?? "N/A"} m";
+                SpeedText = $"Speed: {speedKmh:F1} km/h";
+                LastUpdateText = $"Last Update: {updateTime:HH:mm:ss}";
+
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    try
+                    {
+                        await Shell.Current.DisplayAlert("Location Update",
+                            $"Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, " +
+                            $"Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m, Speed: {speedKmh:F1} km/h, " +
+                            $"Last Update: {updateTime:HH:mm:ss}", "OK");
+                        Log.Debug("MainPage", "Displayed alert");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error("MainPage", $"DisplayAlert error: {ex.Message}\n{ex.StackTrace}");
+                        await DisplayAlert("Error", "Failed to display location.", "OK");
+                    }
+                });
             }
-
-            var location = new Microsoft.Maui.Devices.Sensors.Location
+            catch (Exception ex)
             {
-                Latitude = androidLocation.Latitude,
-                Longitude = androidLocation.Longitude,
-                Altitude = androidLocation.HasAltitude ? androidLocation.Altitude : null,
-                Speed = androidLocation.HasSpeed ? androidLocation.Speed : null
-            };
-
-            float speedKmh = (float)(location.Speed.GetValueOrDefault() * 3.6);
-            LatitudeText = $"Latitude: {location.Latitude:F6}";
-            LongitudeText = $"Longitude: {location.Longitude:F6}";
-            AltitudeText = $"Altitude: {location.Altitude?.ToString("F1") ?? "N/A"} m";
-            SpeedText = $"Speed: {speedKmh:F1} km/h";
-            LastUpdateText = $"Last Update: {updateTime:HH:mm:ss}";
-
-            await MainThread.InvokeOnMainThreadAsync(async () =>
-            {
-                try
-                {
-                    await Shell.Current.DisplayAlert("Location Update",
-                        $"Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, " +
-                        $"Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m, Speed: {speedKmh:F1} km/h, " +
-                        $"Last Update: {updateTime:HH:mm:ss}", "OK");
-                }
-                catch (Exception ex)
-                {
-                    Log.Error("MainPage", $"DisplayAlert error: {ex.Message}\n{ex.StackTrace}");
-                    await DisplayAlert("Error", "Failed to display location.", "OK");
-                }
-            });
+                Log.Error("MainPage", $"Message handler error: {ex.Message}\n{ex.StackTrace}");
+            }
         });
     }
 
     private async void OnCounterClicked(object sender, EventArgs e)
     {
-        Debug.WriteLine("MainPage: OnCounterClicked started");
-        await StartLocationService();
-        Debug.WriteLine("MainPage: OnCounterClicked completed");
+        if (count < 1)
+        {
+            Debug.WriteLine("MainPage: OnCounterClicked started");
+            await StartLocationService();
+            Debug.WriteLine("MainPage: OnCounterClicked completed");
+        }
+        else
+        {
+            Debug.WriteLine("MainPage: Location Service already called");
+        }
         count++;
 
         if (count == 1)

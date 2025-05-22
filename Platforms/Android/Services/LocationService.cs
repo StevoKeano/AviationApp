@@ -15,6 +15,7 @@ public class LocationService : Service
 {
     private LocationManager locationManager;
     private Notification notification;
+    private LocationListener locationListener;
 
     public override void OnCreate()
     {
@@ -31,11 +32,23 @@ public class LocationService : Service
 
             if (locationManager.IsProviderEnabled(LocationManager.GpsProvider))
             {
-                locationManager.RequestLocationUpdates(LocationManager.GpsProvider, 1000, 1, new LocationListener(this));
+                locationListener = new LocationListener(this);
+                locationManager.RequestLocationUpdates(LocationManager.GpsProvider, 1000, 1, locationListener);
+                Log.Debug("LocationService", "Requested location updates with GPS provider");
             }
             else
             {
                 Log.Error("LocationService", "GPS provider is disabled");
+                if (locationManager.IsProviderEnabled(LocationManager.NetworkProvider))
+                {
+                    locationListener = new LocationListener(this);
+                    locationManager.RequestLocationUpdates(LocationManager.NetworkProvider, 1000, 1, locationListener);
+                    Log.Debug("LocationService", "Requested location updates with network provider");
+                }
+                else
+                {
+                    Log.Error("LocationService", "Network provider is also disabled");
+                }
             }
 
             notification = CreateNotification();
@@ -63,17 +76,18 @@ public class LocationService : Service
 
             if (notification == null)
             {
-                Log.Error("LocationService", "Failed to create notification");
+                Log.Error("LocationService", "Failed to create notification, cannot start foreground service");
                 return StartCommandResult.Sticky;
             }
 
             StartForeground(1, notification);
+            Log.Debug("LocationService", "Foreground service started");
             return StartCommandResult.Sticky;
         }
         catch (Exception ex)
         {
             Log.Error("LocationService", $"OnStartCommand error: {ex.Message}\n{ex.StackTrace}");
-            throw;
+            return StartCommandResult.Sticky;
         }
     }
 
@@ -114,6 +128,16 @@ public class LocationService : Service
         return null;
     }
 
+    public override void OnDestroy()
+    {
+        base.OnDestroy();
+        if (locationManager != null && locationListener != null)
+        {
+            locationManager.RemoveUpdates(locationListener);
+            Log.Debug("LocationService", "Removed location updates");
+        }
+    }
+
     private class LocationListener : Java.Lang.Object, ILocationListener
     {
         private readonly LocationService service;
@@ -121,32 +145,53 @@ public class LocationService : Service
         public LocationListener(LocationService service)
         {
             this.service = service;
+            Log.Debug("LocationService", "LocationListener created");
         }
 
         public void OnLocationChanged(Location location)
         {
-            if (location == null)
+            try
             {
-                Log.Error("LocationService", "Received null location");
-                return;
-            }
+                if (location == null)
+                {
+                    Log.Error("LocationService", "Received null location");
+                    return;
+                }
 
-            Log.Debug("LocationService", $"Location updated: Lat={location.Latitude}, Lon={location.Longitude}");
-            WeakReferenceMessenger.Default.Send(new LocationMessage(location, DateTime.Now));
-            service.SendLocationToPrinter(location);
+                Log.Debug("LocationService", $"Location updated: Lat={location.Latitude}, Lon={location.Longitude}, Time={DateTime.Now:HH:mm:ss}");
+                WeakReferenceMessenger.Default.Send(new LocationMessage(location, DateTime.Now));
+                Log.Debug("LocationService", "Sent LocationMessage");
+                // Disabled to avoid crash
+                // service.SendLocationToPrinter(location);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("LocationService", $"OnLocationChanged error: {ex.Message}\n{ex.StackTrace}");
+            }
         }
 
-        public void OnProviderDisabled(string provider) { }
-        public void OnProviderEnabled(string provider) { }
-        public void OnStatusChanged(string provider, Availability status, Bundle extras) { }
+        public void OnProviderDisabled(string provider)
+        {
+            Log.Error("LocationService", $"Provider disabled: {provider}");
+        }
+
+        public void OnProviderEnabled(string provider)
+        {
+            Log.Debug("LocationService", $"Provider enabled: {provider}");
+        }
+
+        public void OnStatusChanged(string provider, Availability status, Bundle extras)
+        {
+            Log.Debug("LocationService", $"Status changed: {provider}, {status}");
+        }
     }
 
     private async void SendLocationToPrinter(Location location)
     {
         try
         {
-            using var httpClient = new HttpClient();
-            var url = "http://192.168.137.100/api/location"; // Adjust to printer’s API
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            var url = "http://192.168.137.100/api/location";
             var data = new { location.Latitude, location.Longitude, location.Altitude };
             var response = await httpClient.PostAsJsonAsync(url, data);
             Log.Debug("LocationService", $"Sent location to printer: {response.StatusCode}");
