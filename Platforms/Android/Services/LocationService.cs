@@ -8,7 +8,7 @@ using System.Collections.Generic;
 
 namespace AviationApp.Services;
 
-[Service]
+[Service(ForegroundServiceType = Android.Content.PM.ForegroundService.TypeLocation)]
 public class LocationService : Service, ILocationListener
 {
     private LocationManager _locationManager;
@@ -44,7 +44,7 @@ public class LocationService : Service, ILocationListener
     public override StartCommandResult OnStartCommand(Intent? intent, StartCommandFlags flags, int startId)
     {
         var notification = CreateNotification();
-        StartForeground(NotificationId, notification,ForegroundService.TypeLocation);
+        StartForeground(NotificationId, notification);
         RequestLocationUpdates();
         return StartCommandResult.Sticky;
     }
