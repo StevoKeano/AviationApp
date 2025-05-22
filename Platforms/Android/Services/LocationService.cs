@@ -3,6 +3,7 @@ using Android.Content;
 using Android.Content.PM;
 using Android.Locations;
 using Android.OS;
+using Android.Util;
 using Microsoft.Maui.Controls;
 using System.Collections.Generic;
 
@@ -62,6 +63,12 @@ public class LocationService : Service, ILocationListener
         var speedKmh = location.Speed * 3.6f; // Convert m/s to km/h
         MainThread.BeginInvokeOnMainThread(async () =>
         {
+            if (Shell.Current == null)
+            {
+                Log.Error("function OnLocationChanged aka LocationUpdate?", "Shell.Current is null");
+                // Fallback: Log or notify via other means
+                return;
+            }
             await Shell.Current.DisplayAlert("Location Update",
                 $"Lat: {location.Latitude}, Lon: {location.Longitude}, Alt: {location.Altitude}m, Speed: {speedKmh:F1} km/h", "OK");
         });
