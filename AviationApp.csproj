@@ -31,6 +31,7 @@
 		<AndroidLinkMode Condition="'$(Configuration)'=='Release'">None</AndroidLinkMode>
 		<AndroidUseManagedCodeShrinker>false</AndroidUseManagedCodeShrinker>
 		<SkipValidateMauiImplicitPackageReferences>true</SkipValidateMauiImplicitPackageReferences>
+		<DefaultLanguage>English</DefaultLanguage>
 	</PropertyGroup>
 		<!-- Release mode settings -->
 		<PropertyGroup Condition="'$(Configuration)'=='Release'">
@@ -69,6 +70,12 @@
 
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>	
+	<ItemGroup>
+	  <None Remove="Resources\drawable\ic_notification.png" />
+	</ItemGroup>	
+	<ItemGroup>
+	  <AndroidResource Include="Resources\drawable\ic_notification.png" />
 	</ItemGroup>
 	<ItemGroup>
   <None Include="platforms\android\Android.csproj" />

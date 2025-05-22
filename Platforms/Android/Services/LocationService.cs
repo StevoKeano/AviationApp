@@ -1,5 +1,6 @@
 ﻿using Android.App;
 using Android.Content;
+using Android.Content.PM;
 using Android.Locations;
 using Android.OS;
 using Microsoft.Maui.Controls;
@@ -17,16 +18,33 @@ public class LocationService : Service, ILocationListener
     public override void OnCreate()
     {
         base.OnCreate();
-        _locationManager = (LocationManager)GetSystemService(Android.Content.Context.LocationService);
+        System.Diagnostics.Debug.WriteLine("LocationService: OnCreate started");
+        try
+        {
+            _locationManager = GetSystemService(Android.Content.Context.LocationService) as LocationManager;
+            if (_locationManager == null)
+            {
+                System.Diagnostics.Debug.WriteLine("LocationService: Failed to get LocationManager");
+                StopSelf(); // Gracefully stop the service
+                return;
+            }
 
-        CreateNotificationChannel();
+            CreateNotificationChannel();
+            System.Diagnostics.Debug.WriteLine("LocationService: OnCreate completed");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"LocationService: OnCreate failed: {ex}");
+            StopSelf(); // Stop the service on error
+        }
     }
 
     public override IBinder? OnBind(Intent? intent) => null;
 
     public override StartCommandResult OnStartCommand(Intent? intent, StartCommandFlags flags, int startId)
     {
-        StartForeground(NotificationId, CreateNotification());
+        var notification = CreateNotification();
+        StartForeground(NotificationId, notification,ForegroundService.TypeLocation);
         RequestLocationUpdates();
         return StartCommandResult.Sticky;
     }
@@ -66,7 +84,7 @@ public class LocationService : Service, ILocationListener
         var notification = new Notification.Builder(this, ChannelId)
             .SetContentTitle("AviationApp Location Service")
             .SetContentText("Tracking location for aviation data")
-            .SetSmallIcon(Resource.Drawable.abc_ic_arrow_drop_right_black_24dp) // Replace with your icon
+            .SetSmallIcon(Resource.Drawable.ic_notification) // Replace with your icon
             .SetOngoing(true)
             .Build();
         return notification;
@@ -74,11 +92,27 @@ public class LocationService : Service, ILocationListener
 
     private void CreateNotificationChannel()
     {
-        if (Build.VERSION.SdkInt >= BuildVersionCodes.O)
+        System.Diagnostics.Debug.WriteLine("LocationService: Creating notification channel");
+        try
         {
-            var channel = new NotificationChannel(ChannelId, "Location Service", NotificationImportance.Low);
-            var notificationManager = GetSystemService(NotificationService) as NotificationManager;
-            notificationManager?.CreateNotificationChannel(channel);
+            if (Build.VERSION.SdkInt >= BuildVersionCodes.O)
+            {
+                var channel = new NotificationChannel(ChannelId, "Location Service", NotificationImportance.Low);
+                var notificationManager = GetSystemService(NotificationService) as NotificationManager;
+                if (notificationManager != null)
+                {
+                    notificationManager.CreateNotificationChannel(channel);
+                    System.Diagnostics.Debug.WriteLine("LocationService: Notification channel created");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("LocationService: NotificationManager is null");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"LocationService: CreateNotificationChannel failed: {ex}");
         }
     }
 }
