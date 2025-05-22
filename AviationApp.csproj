@@ -81,6 +81,7 @@
   <None Include="platforms\android\Android.csproj" />
 </ItemGroup>
 <ItemGroup>
+   	<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
    	<PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="9.0.51" />
 	<PackageReference Update="Microsoft.Maui.Controls" Version="9.0.51" />
 	<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.5" />

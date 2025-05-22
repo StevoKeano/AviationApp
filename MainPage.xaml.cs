@@ -1,36 +1,119 @@
 ﻿using Android.Content;
+using Android.Locations;
+using Android.Util;
+using AviationApp.Services;
+using CommunityToolkit.Mvvm.Messaging;
+using Microsoft.Maui.Controls;
+using Microsoft.Maui.Devices.Sensors;
+using Microsoft.Maui.Dispatching;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace AviationApp;
 
-public partial class MainPage : ContentPage
+public partial class MainPage : ContentPage, INotifyPropertyChanged
 {
-	int count = 0;
+    private int count = 0;
+    private string latitudeText = "Latitude: N/A";
+    private string longitudeText = "Longitude: N/A";
+    private string altitudeText = "Altitude: N/A";
+    private string speedText = "Speed: N/A";
+    private string lastUpdateText = "Last Update: N/A";
 
-	public MainPage()
-	{
-		InitializeComponent();
-	}
+    public string LatitudeText
+    {
+        get => latitudeText;
+        set { latitudeText = value; OnPropertyChanged(); }
+    }
 
-	private async void OnCounterClicked(object sender, EventArgs e)
-	{
+    public string LongitudeText
+    {
+        get => longitudeText;
+        set { longitudeText = value; OnPropertyChanged(); }
+    }
+
+    public string AltitudeText
+    {
+        get => altitudeText;
+        set { altitudeText = value; OnPropertyChanged(); }
+    }
+
+    public string SpeedText
+    {
+        get => speedText;
+        set { speedText = value; OnPropertyChanged(); }
+    }
+
+    public string LastUpdateText
+    {
+        get => lastUpdateText;
+        set { lastUpdateText = value; OnPropertyChanged(); }
+    }
+
+    public MainPage()
+    {
+        InitializeComponent();
+        BindingContext = this;
+        WeakReferenceMessenger.Default.Register<LocationMessage>(this, async (recipient, message) =>
+        {
+            var androidLocation = message.Location;
+            var updateTime = message.UpdateTime;
+            if (androidLocation == null)
+            {
+                Log.Error("MainPage", "Received null location");
+                await DisplayAlert("Location Error", "Unable to retrieve location data.", "OK");
+                return;
+            }
+
+            var location = new Microsoft.Maui.Devices.Sensors.Location
+            {
+                Latitude = androidLocation.Latitude,
+                Longitude = androidLocation.Longitude,
+                Altitude = androidLocation.HasAltitude ? androidLocation.Altitude : null,
+                Speed = androidLocation.HasSpeed ? androidLocation.Speed : null
+            };
+
+            float speedKmh = (float)(location.Speed.GetValueOrDefault() * 3.6);
+            LatitudeText = $"Latitude: {location.Latitude:F6}";
+            LongitudeText = $"Longitude: {location.Longitude:F6}";
+            AltitudeText = $"Altitude: {location.Altitude?.ToString("F1") ?? "N/A"} m";
+            SpeedText = $"Speed: {speedKmh:F1} km/h";
+            LastUpdateText = $"Last Update: {updateTime:HH:mm:ss}";
+
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                try
+                {
+                    await Shell.Current.DisplayAlert("Location Update",
+                        $"Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, " +
+                        $"Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m, Speed: {speedKmh:F1} km/h, " +
+                        $"Last Update: {updateTime:HH:mm:ss}", "OK");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("MainPage", $"DisplayAlert error: {ex.Message}\n{ex.StackTrace}");
+                    await DisplayAlert("Error", "Failed to display location.", "OK");
+                }
+            });
+        });
+    }
+
+    private async void OnCounterClicked(object sender, EventArgs e)
+    {
         Debug.WriteLine("MainPage: OnCounterClicked started");
         await StartLocationService();
         Debug.WriteLine("MainPage: OnCounterClicked completed");
         count++;
 
-		if (count == 1)
-			CounterBtn.Text = $"Clicked {count} time";
-		else
-			CounterBtn.Text = $"Clicked {count} times";
+        if (count == 1)
+            CounterBtn.Text = $"Clicked {count} time";
+        else
+            CounterBtn.Text = $"Clicked {count} times";
 
-		SemanticScreenReader.Announce(CounterBtn.Text);
-	}
-    //private async Task StartLocationService()
-    //{
-    //    var intent = new Intent(Android.App.Application.Context, typeof(AviationApp.Services.LocationService));
-    //    Android.App.Application.Context.StartForegroundService(intent);
-    //}
+        SemanticScreenReader.Announce(CounterBtn.Text);
+    }
+
     private async Task StartLocationService()
     {
         Debug.WriteLine("MainPage: StartLocationService started");
@@ -46,8 +129,8 @@ public partial class MainPage : ContentPage
             }
 
             var context = Android.App.Application.Context;
-            var startServiceIntent = new Intent(context, typeof(AviationApp.Services.LocationService)); // Line 28
-            context.StartForegroundService(startServiceIntent); // Line 29
+            var startServiceIntent = new Intent(context, typeof(AviationApp.Services.LocationService));
+            context.StartForegroundService(startServiceIntent);
             Debug.WriteLine("MainPage: StartForegroundService called");
         }
         catch (Exception ex)
@@ -63,8 +146,8 @@ public partial class MainPage : ContentPage
         try
         {
             var context = Android.App.Application.Context;
-            var stopServiceIntent = new Intent(context, typeof(AviationApp.Services.LocationService)); // Line 35
-            context.StopService(stopServiceIntent); // Line 36
+            var stopServiceIntent = new Intent(context, typeof(AviationApp.Services.LocationService));
+            context.StopService(stopServiceIntent);
             Debug.WriteLine("MainPage: StopService called");
         }
         catch (Exception ex)
@@ -72,5 +155,10 @@ public partial class MainPage : ContentPage
             Debug.WriteLine($"MainPage: StopLocationService failed: {ex}");
         }
     }
-}
 
+    public new event PropertyChangedEventHandler PropertyChanged;
+    protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
