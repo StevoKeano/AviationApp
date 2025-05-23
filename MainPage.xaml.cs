@@ -10,6 +10,8 @@ using Microsoft.Maui.Graphics.Platform;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using Android.App;
+using Android.Content.PM;
 
 namespace AviationApp;
 
@@ -23,8 +25,12 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private string altitudeText = "Altitude: N/A";
     private string speedText = "Speed: N/A";
     private string lastUpdateText = "Last Update: N/A";
+    private string dmmsText = "";
     private bool isActive = false;
     private ButtonState buttonState = ButtonState.Paused;
+    private bool isFlashing = false;
+    private Color pageBackground = Colors.Transparent;
+    private CancellationTokenSource flashingCts = null;
 
     public string LatitudeText
     {
@@ -56,6 +62,12 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         set { lastUpdateText = value; OnPropertyChanged(); }
     }
 
+    public string DmmsText
+    {
+        get => dmmsText;
+        set { dmmsText = value; OnPropertyChanged(); }
+    }
+
     public bool IsActive
     {
         get => isActive;
@@ -68,11 +80,17 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         set { buttonState = value; OnPropertyChanged(); }
     }
 
+    public Color PageBackground
+    {
+        get => pageBackground;
+        set { pageBackground = value; OnPropertyChanged(); }
+    }
+
     public MainPage()
     {
         InitializeComponent();
         BindingContext = this;
-        WeakReferenceMessenger.Default.Register<LocationMessage>(this, (recipient, message) =>
+        WeakReferenceMessenger.Default.Register<LocationMessage>(this, async (recipient, message) =>
         {
             try
             {
@@ -109,6 +127,23 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 float speedKmh = (float)(location.Speed.GetValueOrDefault() * 3.6);
                 Debug.WriteLine($"MainPage: Location Update - Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m ({altitudeFeet?.ToString("F1") ?? "N/A"}ft), Speed: {speedKmh:F1} km/h ({speedKnots:F1} knots), Time: {updateTime:HH:mm:ss}");
                 Log.Debug("MainPage", $"Location Update - Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m ({altitudeFeet?.ToString("F1") ?? "N/A"}ft), Speed: {speedKmh:F1} km/h ({speedKnots:F1} knots), Time: {updateTime:HH:mm:ss}");
+
+                // Check DMMS and flash background if speed is below
+                float dmmsKnots = 0f; // Initialize to safe default
+                bool isDmmsValid = IsActive && float.TryParse(DmmsText, out dmmsKnots) && dmmsKnots > 0;
+                if (isDmmsValid && speedKnots < dmmsKnots)
+                {
+                    if (!isFlashing)
+                    {
+                        isFlashing = true;
+                        await StartFlashingBackground();
+                        BringAppToForeground();
+                    }
+                }
+                else if (isFlashing && (!isDmmsValid || speedKnots >= dmmsKnots || !IsActive))
+                {
+                    await StopFlashingBackground();
+                }
             }
             catch (Exception ex)
             {
@@ -120,7 +155,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
     private async void OnCounterClicked(object sender, EventArgs e)
     {
-        if (count < 1)
+        if (count < 1 || !isActive)
         {
             Debug.WriteLine("MainPage: OnCounterClicked started");
             await StartLocationService();
@@ -134,8 +169,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         {
             Debug.WriteLine("MainPage: Location Service already called");
             if (StopLocationService() == 0)
-            {
-                count = 0;
+            {                
                 IsActive = false;
                 ButtonState = ButtonState.Paused;
                 CounterBtnBorder.Background = (Brush)Resources["PausedGradient"];
@@ -147,12 +181,9 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 CounterBtnBorder.Background = (Brush)Resources["FailedGradient"];
             }
         }
-
         if (count == 1)
         {
             CounterBtn.Text = $"DMMS Monitoring Started";
-            ButtonState = ButtonState.Active;
-            CounterBtnBorder.Background = (Brush)Resources["ActiveGradient"];
         }
         else
         {
@@ -167,6 +198,12 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             }
         }
 
+        // Stop flashing on button tap
+        if (isFlashing)
+        {
+            await StopFlashingBackground();
+        }
+
         SemanticScreenReader.Announce(CounterBtn.Text);
     }
 
@@ -175,6 +212,74 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         // Scale animation for 3D button press
         await CounterBtnBorder.ScaleTo(0.95, 100);
         await CounterBtnBorder.ScaleTo(1.0, 100);
+    }
+
+    private async Task StartFlashingBackground()
+    {
+        flashingCts = new CancellationTokenSource();
+        try
+        {
+            while (!flashingCts.Token.IsCancellationRequested)
+            {
+                PageBackground = Colors.Red.WithAlpha(0.8f);
+                await Task.Delay(500, flashingCts.Token);
+                PageBackground = Colors.Transparent;
+                await Task.Delay(500, flashingCts.Token);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Expected when cancelled
+        }
+        finally
+        {
+            PageBackground = Colors.Transparent;
+        }
+    }
+
+    private async Task StopFlashingBackground()
+    {
+        if (flashingCts != null)
+        {
+            flashingCts.Cancel();
+            flashingCts.Dispose();
+            flashingCts = null;
+        }
+        isFlashing = false;
+        PageBackground = Colors.Transparent;
+        await Task.CompletedTask;
+    }
+
+    private void BringAppToForeground()
+    {
+        try
+        {
+            var activity = Platform.CurrentActivity;
+            if (activity == null)
+            {
+                Log.Error("MainPage", "Current activity is null");
+                return;
+            }
+
+            // Check if app is in background
+            var packageManager = activity.PackageManager;
+            var intent = packageManager.GetLaunchIntentForPackage(activity.PackageName);
+            if (intent != null)
+            {
+                intent.AddFlags(ActivityFlags.NewTask | ActivityFlags.ClearTop);
+                activity.StartActivity(intent);
+                Log.Debug("MainPage", "Brought app to foreground");
+            }
+            else
+            {
+                Log.Error("MainPage", "Failed to get launch intent");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("MainPage", $"Failed to bring app to foreground: {ex.Message}");
+            Debug.WriteLine($"MainPage: Failed to bring app to foreground: {ex.Message}");
+        }
     }
 
     private async Task StartLocationService()

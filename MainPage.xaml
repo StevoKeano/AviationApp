@@ -1,7 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="AviationApp.MainPage">
+             x:Class="AviationApp.MainPage"
+             Background="{Binding PageBackground, FallbackValue=Transparent}">
     <ContentPage.Resources>
         <!-- Define Gradients -->
         <LinearGradientBrush x:Key="ActiveGradient" EndPoint="0,1">
@@ -38,9 +39,9 @@
                 Text="Drop below DMMS and DIE!"
                 Style="{StaticResource Headline}"
                 SemanticProperties.HeadingLevel="Level1" />
-            <Entry x:Name="DmmsEntry"
-                   Placeholder="Enter DMMS (knots)"
-                   Keyboard="Numeric" />
+            <Entry Placeholder="Enter DMMS (knots)"
+                   Keyboard="Numeric"
+                   Text="{Binding DmmsText}" />
             <Label
                 Text="(defined minimum maneuvering speed)"
                 Style="{StaticResource SubHeadline}"
@@ -60,7 +61,7 @@
                     <Shadow Brush="#333333" Offset="5,5" Radius="10" Opacity="0.5" />
                 </Border.Shadow>
                 <Button x:Name="CounterBtn"
-                        Text="DMMS: ACTIVATE NOW!"
+                        Text="DMMS Monitoring Started"
                         FontSize="18"
                         FontAttributes="Bold"
                         TextColor="White"
@@ -101,14 +102,6 @@
                 </Border.GestureRecognizers>
             </Border>
 
-            <!--<Label
-                Text="{Binding LatitudeText}"
-                Style="{StaticResource SubHeadline}"
-                SemanticProperties.HeadingLevel="Level3" />
-            <Label
-                Text="{Binding LongitudeText}"
-                Style="{StaticResource SubHeadline}"
-                SemanticProperties.HeadingLevel="Level3" />-->
             <Label
                 Text="{Binding AltitudeText}"
                 Style="{StaticResource SubHeadline}"
