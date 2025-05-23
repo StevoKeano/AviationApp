@@ -1,0 +1,56 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="AviationApp.OptionsPage"
+             Title="Options"
+             BackgroundColor="{DynamicResource PageBackgroundColor}">
+    <ScrollView>
+        <VerticalStackLayout Spacing="20" Padding="20">
+            <!-- DMMS Message Frequency -->
+            <Label Text="DMMS Violation Message Frequency (seconds)"
+                   Style="{StaticResource Headline}"
+                   SemanticProperties.HeadingLevel="Level2" />
+            <Entry x:Name="MessageFrequencyEntry"
+                   Placeholder="Enter seconds (e.g., 10)"
+                   Keyboard="Numeric"
+                   Text="{Binding MessageFrequency}"
+                   FontAttributes="Bold"
+                   HorizontalTextAlignment="Center" />
+
+            <!-- Show Skull and Crossbones -->
+            <Label Text="Show Skull and Crossbones on Violation"
+                   Style="{StaticResource Headline}"
+                   SemanticProperties.HeadingLevel="Level2" />
+            <Switch x:Name="SkullToggle"
+                    IsToggled="{Binding ShowSkull}"
+                    HorizontalOptions="Center" />
+
+            <!-- Warning Label Text -->
+            <Label Text="Warning Label Text"
+                   Style="{StaticResource Headline}"
+                   SemanticProperties.HeadingLevel="Level2" />
+            <Entry x:Name="WarningLabelEntry"
+                   Placeholder="Enter warning text"
+                   Text="{Binding WarningLabelText}"
+                   FontAttributes="Bold"
+                   HorizontalTextAlignment="Center" />
+
+            <!-- TTS Alert Text -->
+            <Label Text="DMMS Alert TTS Text"
+                   Style="{StaticResource Headline}"
+                   SemanticProperties.HeadingLevel="Level2" />
+            <Entry x:Name="TtsAlertEntry"
+                   Placeholder="Enter TTS alert text"
+                   Text="{Binding TtsAlertText}"
+                   FontAttributes="Bold"
+                   HorizontalTextAlignment="Center" />
+
+            <!-- Save Button -->
+            <Button Text="Save Options"
+                    Style="{StaticResource Button}"
+                    Clicked="OnSaveClicked"
+                    HorizontalOptions="Center"
+                    WidthRequest="200" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

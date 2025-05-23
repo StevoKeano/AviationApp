@@ -29,7 +29,7 @@
         <!-- Skull and Crossbones Overlay -->
         <Image x:Name="SkullImage"
                Source="skull_crossbones.png"
-               IsVisible="{Binding IsFlashing}"
+               IsVisible="{Binding ShowSkullWarning}"
                AbsoluteLayout.LayoutFlags="PositionProportional"
                AbsoluteLayout.LayoutBounds="0.5, 0.5, 200, 200"
                Opacity="0.9"
@@ -41,6 +41,13 @@
             <VerticalStackLayout
                 Padding="30,0"
                 Spacing="25">
+                <!-- Options Button -->
+                <Button Text="Options"
+                        Style="{StaticResource Button}"
+                        Clicked="OnOptionsClicked"
+                        HorizontalOptions="End"
+                        WidthRequest="100" />
+
                 <Image
                     Source="dotnet_bot.png"
                     HeightRequest="185"
@@ -48,7 +55,7 @@
                     SemanticProperties.Description="planes drop like a piano below DMMS" />
 
                 <Label
-                    Text="Drop below DMMS and DIE!"
+                    Text="{Binding WarningLabelText}"
                     Style="{StaticResource Headline}"
                     SemanticProperties.HeadingLevel="Level1" />
                 <Entry Placeholder="Enter DMMS (knots)"

@@ -86,6 +86,11 @@
 	<PackageReference Update="Microsoft.Maui.Controls" Version="9.0.51" />
 	<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.5" />
 </ItemGroup>
+<ItemGroup>
+  <MauiXaml Update="OptionsPage.xaml">
+    <Generator>MSBuild:Compile</Generator>
+  </MauiXaml>
+</ItemGroup>
 	
 
 </Project>

@@ -28,9 +28,11 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private string speedText = "Speed: N/A";
     private string lastUpdateText = "Last Update: N/A";
     private string dmmsText;
+    private string warningLabelText;
     private bool isActive = false;
     private ButtonState buttonState = ButtonState.Paused;
     private bool isFlashing = false;
+    private bool showSkullWarning = false;
     private Color pageBackground = Colors.Transparent;
     private CancellationTokenSource flashingCts = null;
     private CancellationTokenSource ttsCts = null;
@@ -39,7 +41,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private readonly object _flashLock = new object();
     private DateTime _lastFlashUpdate = DateTime.MinValue;
     private readonly TimeSpan _debounceInterval = TimeSpan.FromMilliseconds(100);
-    private int _originalMediaVolume = -1; // Store original volume
+    private int _originalMediaVolume = -1;
+    private string ttsAlertText;
+    private float messageFrequency;
+    private bool showSkull;
 
     public string LatitudeText
     {
@@ -86,6 +91,12 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
     }
 
+    public string WarningLabelText
+    {
+        get => warningLabelText;
+        set { warningLabelText = value; OnPropertyChanged(); }
+    }
+
     public bool IsActive
     {
         get => isActive;
@@ -107,20 +118,51 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     public bool IsFlashing
     {
         get => isFlashing;
-        set { isFlashing = value; OnPropertyChanged(); }
+        set
+        {
+            isFlashing = value;
+            OnPropertyChanged();
+            UpdateSkullVisibility();
+            Log.Debug("MainPage", $"IsFlashing set to: {isFlashing}");
+        }
+    }
+
+    public bool ShowSkullWarning
+    {
+        get => showSkullWarning;
+        set
+        {
+            showSkullWarning = value;
+            OnPropertyChanged();
+            Log.Debug("MainPage", $"ShowSkullWarning set to: {showSkullWarning}");
+        }
+    }
+
+    private void UpdateSkullVisibility()
+    {
+        ShowSkullWarning = IsFlashing && showSkull;
+        Log.Debug("MainPage", $"UpdateSkullVisibility - IsFlashing: {IsFlashing}, ShowSkull: {showSkull}, ShowSkullWarning: {ShowSkullWarning}");
     }
 
     public MainPage()
     {
+        // Load settings at startup
         dmmsText = Preferences.Get("DmmsValue", "70");
-        Log.Debug("MainPage", $"Loaded DmmsText from Preferences: {dmmsText}");
+        warningLabelText = Preferences.Get("WarningLabelText", "Drop below DMMS and DIE!");
+        ttsAlertText = Preferences.Get("TtsAlertText", "SPEED CHECK, YOUR GONNA FALL OUTTA THE SKY LIKE A PIANO");
+        messageFrequency = Preferences.Get("MessageFrequency", 5f); // Default 5 seconds
+        showSkull = Preferences.Get("ShowSkull", false);
+        showSkullWarning = false; // Initialize to false
+        Log.Debug("MainPage", $"Loaded settings at startup - DmmsText: {dmmsText}, WarningLabelText: {warningLabelText}, TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}, ShowSkull: {showSkull}, ShowSkullWarning: {showSkullWarning}");
 
         InitializeComponent();
         BindingContext = this;
 
         OnPropertyChanged(nameof(DmmsText));
+        OnPropertyChanged(nameof(WarningLabelText));
+        OnPropertyChanged(nameof(ShowSkullWarning));
 
-        // Test TTS on startup to confirm it works
+        // Test TTS on startup
         Task.Run(async () =>
         {
             try
@@ -196,6 +238,11 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 Debug.WriteLine($"MainPage: Message handler error: {ex.Message}\n{ex.StackTrace}");
             }
         });
+    }
+
+    private async void OnOptionsClicked(object sender, EventArgs e)
+    {
+        await Navigation.PushAsync(new OptionsPage());
     }
 
     private async void OnCounterClicked(object sender, EventArgs e)
@@ -274,7 +321,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             Log.Debug("MainPage", "New CancellationTokenSource created for flashing and TTS");
         }
 
-        // Capture and set media volume to maximum (Android-specific)
+        // Set media volume to maximum (Android-specific)
 #if ANDROID
         try
         {
@@ -290,10 +337,17 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
 #endif
 
+        // Start flashing and TTS concurrently
+        Log.Debug("MainPage", $"Starting flashing and TTS tasks with TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}");
         _flashingTask = Task.Run(async () =>
         {
             try
             {
+                if (flashingCts == null)
+                {
+                    Log.Error("MainPage", "Flashing task started with null flashingCts");
+                    return;
+                }
                 while (!flashingCts.Token.IsCancellationRequested)
                 {
                     MainThread.BeginInvokeOnMainThread(() => PageBackground = Colors.Red.WithAlpha(0.8f));
@@ -325,22 +379,36 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     Log.Debug("MainPage", "Flashing task cleaned up");
                 }
             }
-        });
+        }, flashingCts.Token);
 
         _ttsTask = Task.Run(async () =>
         {
             try
             {
+                if (ttsCts == null)
+                {
+                    Log.Error("MainPage", "TTS task started with null ttsCts");
+                    return;
+                }
                 Log.Debug("MainPage", "Starting TTS loop");
+                // Immediate TTS playback to align with flashing
+                await TextToSpeech.Default.SpeakAsync(
+                    ttsAlertText,
+                    new SpeechOptions { Volume = 1.0f },
+                    ttsCts.Token);
+                Log.Debug("MainPage", "TTS: Initial message played at maximum volume");
                 while (!ttsCts.Token.IsCancellationRequested)
                 {
-                    Log.Debug("MainPage", "Attempting to play TTS 'SPEED CHECK' at maximum volume");
-                    await TextToSpeech.Default.SpeakAsync(
-                        "SPEED CHECK, YOUR GONNA FALL OUTTA THE SKY LIKE A PIANO",
-                        new SpeechOptions { Volume = 1.0f },
-                        ttsCts.Token);
-                    Log.Debug("MainPage", "TTS: Played 'SPEED CHECK' at maximum volume");
-                    await Task.Delay(5000, ttsCts.Token); // Repeat every 5 seconds
+                    await Task.Delay((int)(messageFrequency * 1000), ttsCts.Token); // Use saved frequency
+                    if (!ttsCts.Token.IsCancellationRequested)
+                    {
+                        Log.Debug("MainPage", $"Attempting to play TTS: {ttsAlertText}");
+                        await TextToSpeech.Default.SpeakAsync(
+                            ttsAlertText,
+                            new SpeechOptions { Volume = 1.0f },
+                            ttsCts.Token);
+                        Log.Debug("MainPage", "TTS: Played message at maximum volume");
+                    }
                 }
             }
             catch (TaskCanceledException)
@@ -361,7 +429,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     Log.Debug("MainPage", "TTS task cleaned up");
                 }
             }
-        });
+        }, ttsCts.Token);
     }
 
     private async Task StopFlashingBackground()
@@ -402,7 +470,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 var audioManager = (Android.Media.AudioManager)Android.App.Application.Context.GetSystemService(Context.AudioService);
                 audioManager.SetStreamVolume(Android.Media.Stream.Music, _originalMediaVolume, 0);
                 Log.Debug("MainPage", $"Restored media volume to original: {_originalMediaVolume}");
-                _originalMediaVolume = -1; // Reset after restoring
+                _originalMediaVolume = -1;
             }
         }
         catch (Exception ex)
@@ -493,6 +561,20 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             Log.Debug("MainPage", $"StopLocationService failed: {ex.Message}");
             return -1;
         }
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        // Reload settings live
+        warningLabelText = Preferences.Get("WarningLabelText", "Drop below DMMS and DIE!");
+        ttsAlertText = Preferences.Get("TtsAlertText", "SPEED CHECK, YOUR GONNA FALL OUTTA THE SKY LIKE A PIANO");
+        messageFrequency = Preferences.Get("MessageFrequency", 5f);
+        showSkull = Preferences.Get("ShowSkull", false);
+        ShowSkullWarning = IsFlashing && showSkull; // Update skull visibility
+        OnPropertyChanged(nameof(WarningLabelText));
+        OnPropertyChanged(nameof(ShowSkullWarning));
+        Log.Debug("MainPage", $"OnAppearing - Reloaded settings: WarningLabelText: {warningLabelText}, TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}, ShowSkull: {showSkull}, ShowSkullWarning: {ShowSkullWarning}");
     }
 
     public new event PropertyChangedEventHandler PropertyChanged;
