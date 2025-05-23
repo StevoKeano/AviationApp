@@ -13,6 +13,7 @@ using System.Runtime.CompilerServices;
 using Android.App;
 using Android.Content.PM;
 using Microsoft.Maui.Storage;
+using Microsoft.Maui.Media; // Added for TextToSpeech
 
 namespace AviationApp;
 
@@ -26,13 +27,15 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private string altitudeText = "Altitude: N/A";
     private string speedText = "Speed: N/A";
     private string lastUpdateText = "Last Update: N/A";
-    private string dmmsText; // Removed initialization to ""
+    private string dmmsText;
     private bool isActive = false;
     private ButtonState buttonState = ButtonState.Paused;
     private bool isFlashing = false;
     private Color pageBackground = Colors.Transparent;
     private CancellationTokenSource flashingCts = null;
+    private CancellationTokenSource ttsCts = null; // Added for TTS
     private Task _flashingTask = null;
+    private Task _ttsTask = null; // Added for TTS
     private readonly object _flashLock = new object();
     private DateTime _lastFlashUpdate = DateTime.MinValue;
     private readonly TimeSpan _debounceInterval = TimeSpan.FromMilliseconds(100);
@@ -76,7 +79,6 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             {
                 dmmsText = value;
                 OnPropertyChanged();
-                // Save the DMMS value to Preferences when it changes
                 Preferences.Set("DmmsValue", value);
                 Log.Debug("MainPage", $"Saved DmmsText to Preferences: {value}");
             }
@@ -109,21 +111,18 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
     public MainPage()
     {
-        // Set default DmmsText before InitializeComponent to ensure binding picks it up
         dmmsText = Preferences.Get("DmmsValue", "70");
         Log.Debug("MainPage", $"Loaded DmmsText from Preferences: {dmmsText}");
 
         InitializeComponent();
         BindingContext = this;
 
-        // Ensure UI updates with the initial value
         OnPropertyChanged(nameof(DmmsText));
 
         WeakReferenceMessenger.Default.Register<LocationMessage>(this, async (recipient, message) =>
         {
             try
             {
-                // Debounce rapid updates
                 if (DateTime.Now - _lastFlashUpdate < _debounceInterval)
                 {
                     return;
@@ -147,25 +146,20 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     Speed = androidLocation.HasSpeed ? androidLocation.Speed : null
                 };
 
-                // Convert speed from m/s to knots (1 knot = 0.514444 m/s)
                 float speedKnots = (float)(location.Speed.GetValueOrDefault() / 0.514444);
-                // Convert altitude from meters to feet (1 meter = 3.28084 feet)
                 double? altitudeFeet = location.Altitude.HasValue ? location.Altitude.Value * 3.28084 : null;
 
-                // Update UI labels (latitude/longitude not displayed per XAML)
                 LatitudeText = $"Latitude: {location.Latitude:F6}";
                 LongitudeText = $"Longitude: {location.Longitude:F6}";
                 AltitudeText = $"Altitude: {altitudeFeet?.ToString("F1") ?? "N/A"} ft";
                 SpeedText = $"Speed: {speedKnots:F1} knots";
                 LastUpdateText = $"Last Update: {updateTime:HH:mm:ss}";
 
-                // Log location info (km/h and meters for GPX, knots and feet for clarity)
                 float speedKmh = (float)(location.Speed.GetValueOrDefault() * 3.6);
                 Debug.WriteLine($"MainPage: Location Update - Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m ({altitudeFeet?.ToString("F1") ?? "N/A"}ft), Speed: {speedKmh:F1} km/h ({speedKnots:F1} knots), Time: {updateTime:HH:mm:ss}");
                 Log.Debug("MainPage", $"Location Update - Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m ({altitudeFeet?.ToString("F1") ?? "N/A"}ft), Speed: {speedKmh:F1} km/h ({speedKnots:F1} knots), Time: {updateTime:HH:mm:ss}");
 
-                // Check DMMS and flash background with skull if speed is below
-                float dmmsKnots = 0f; // Initialize to safe default
+                float dmmsKnots = 0f;
                 bool isDmmsValid = IsActive && float.TryParse(DmmsText, out dmmsKnots) && dmmsKnots > 0;
                 if (isDmmsValid && speedKnots < dmmsKnots)
                 {
@@ -234,7 +228,6 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             }
         }
 
-        // Stop flashing and skull on button tap
         if (IsFlashing)
         {
             await StopFlashingBackground();
@@ -245,7 +238,6 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
     private async void OnButtonTapped(object sender, EventArgs e)
     {
-        // Scale animation for 3D button press
         await CounterBtnBorder.ScaleTo(0.95, 100);
         await CounterBtnBorder.ScaleTo(1.0, 100);
     }
@@ -260,9 +252,11 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 return;
             }
             flashingCts?.Dispose();
+            ttsCts?.Dispose(); // Dispose existing TTS token
             flashingCts = new CancellationTokenSource();
+            ttsCts = new CancellationTokenSource(); // Create new TTS token
             IsFlashing = true;
-            Log.Debug("MainPage", "New CancellationTokenSource created for flashing");
+            Log.Debug("MainPage", "New CancellationTokenSource created for flashing and TTS");
         }
 
         _flashingTask = Task.Run(async () =>
@@ -301,6 +295,37 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 }
             }
         });
+
+        _ttsTask = Task.Run(async () =>
+        {
+            try
+            {
+                while (!ttsCts.Token.IsCancellationRequested)
+                {
+                    await TextToSpeech.Default.SpeakAsync("SPEED CHECK", ttsCts.Token);
+                    Log.Debug("MainPage", "TTS: Played 'SPEED CHECK'");
+                    await Task.Delay(2000, ttsCts.Token); // Wait 2 seconds before next alert
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                Log.Debug("MainPage", "TTS task cancelled");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("MainPage", $"TTS error: {ex.Message}");
+            }
+            finally
+            {
+                lock (_flashLock)
+                {
+                    ttsCts?.Dispose();
+                    ttsCts = null;
+                    _ttsTask = null;
+                    Log.Debug("MainPage", "TTS task cleaned up");
+                }
+            }
+        });
     }
 
     private async Task StopFlashingBackground()
@@ -312,7 +337,14 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 flashingCts.Cancel();
                 flashingCts.Dispose();
                 flashingCts = null;
-                Log.Debug("MainPage", "CancellationTokenSource cancelled and disposed");
+                Log.Debug("MainPage", "Flashing CancellationTokenSource cancelled and disposed");
+            }
+            if (ttsCts != null)
+            {
+                ttsCts.Cancel();
+                ttsCts.Dispose();
+                ttsCts = null;
+                Log.Debug("MainPage", "TTS CancellationTokenSource cancelled and disposed");
             }
         }
 
@@ -320,13 +352,17 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         {
             await _flashingTask;
         }
+        if (_ttsTask != null)
+        {
+            await _ttsTask;
+        }
 
         MainThread.BeginInvokeOnMainThread(() =>
         {
             IsFlashing = false;
             PageBackground = Colors.Transparent;
         });
-        Log.Debug("MainPage", "Flashing stopped");
+        Log.Debug("MainPage", "Flashing and TTS stopped");
     }
 
     private void BringAppToForeground()
@@ -340,7 +376,6 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 return;
             }
 
-            // Check if app is in background
             var packageManager = activity.PackageManager;
             var intent = packageManager.GetLaunchIntentForPackage(activity.PackageName);
             if (intent != null)
