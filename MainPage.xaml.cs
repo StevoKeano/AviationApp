@@ -13,7 +13,7 @@ using System.Runtime.CompilerServices;
 using Android.App;
 using Android.Content.PM;
 using Microsoft.Maui.Storage;
-using Microsoft.Maui.Media; // Added for TextToSpeech
+using Microsoft.Maui.Media;
 
 namespace AviationApp;
 
@@ -33,12 +33,13 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private bool isFlashing = false;
     private Color pageBackground = Colors.Transparent;
     private CancellationTokenSource flashingCts = null;
-    private CancellationTokenSource ttsCts = null; // Added for TTS
+    private CancellationTokenSource ttsCts = null;
     private Task _flashingTask = null;
-    private Task _ttsTask = null; // Added for TTS
+    private Task _ttsTask = null;
     private readonly object _flashLock = new object();
     private DateTime _lastFlashUpdate = DateTime.MinValue;
     private readonly TimeSpan _debounceInterval = TimeSpan.FromMilliseconds(100);
+    private int _originalMediaVolume = -1; // Store original volume
 
     public string LatitudeText
     {
@@ -118,6 +119,20 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         BindingContext = this;
 
         OnPropertyChanged(nameof(DmmsText));
+
+        // Test TTS on startup to confirm it works
+        Task.Run(async () =>
+        {
+            try
+            {
+                await TextToSpeech.Default.SpeakAsync("TTS Test", new SpeechOptions { Volume = 1.0f }, CancellationToken.None);
+                Log.Debug("MainPage", "Startup TTS test played successfully");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("MainPage", $"Startup TTS test failed: {ex.Message}\n{ex.StackTrace}");
+            }
+        });
 
         WeakReferenceMessenger.Default.Register<LocationMessage>(this, async (recipient, message) =>
         {
@@ -252,12 +267,28 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 return;
             }
             flashingCts?.Dispose();
-            ttsCts?.Dispose(); // Dispose existing TTS token
+            ttsCts?.Dispose();
             flashingCts = new CancellationTokenSource();
-            ttsCts = new CancellationTokenSource(); // Create new TTS token
+            ttsCts = new CancellationTokenSource();
             IsFlashing = true;
             Log.Debug("MainPage", "New CancellationTokenSource created for flashing and TTS");
         }
+
+        // Capture and set media volume to maximum (Android-specific)
+#if ANDROID
+        try
+        {
+            var audioManager = (Android.Media.AudioManager)Android.App.Application.Context.GetSystemService(Context.AudioService);
+            _originalMediaVolume = audioManager.GetStreamVolume(Android.Media.Stream.Music);
+            int maxVolume = audioManager.GetStreamMaxVolume(Android.Media.Stream.Music);
+            audioManager.SetStreamVolume(Android.Media.Stream.Music, maxVolume, 0);
+            Log.Debug("MainPage", $"Captured original media volume: {_originalMediaVolume}, set to maximum: {maxVolume}");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("MainPage", $"Failed to capture or set media volume: {ex.Message}\n{ex.StackTrace}");
+        }
+#endif
 
         _flashingTask = Task.Run(async () =>
         {
@@ -277,7 +308,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             }
             catch (Exception ex)
             {
-                Log.Error("MainPage", $"Flashing error: {ex.Message}");
+                Log.Error("MainPage", $"Flashing error: {ex.Message}\n{ex.StackTrace}");
             }
             finally
             {
@@ -300,11 +331,16 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         {
             try
             {
+                Log.Debug("MainPage", "Starting TTS loop");
                 while (!ttsCts.Token.IsCancellationRequested)
                 {
-                    await TextToSpeech.Default.SpeakAsync("SPEED CHECK", ttsCts.Token);
-                    Log.Debug("MainPage", "TTS: Played 'SPEED CHECK'");
-                    await Task.Delay(2000, ttsCts.Token); // Wait 2 seconds before next alert
+                    Log.Debug("MainPage", "Attempting to play TTS 'SPEED CHECK' at maximum volume");
+                    await TextToSpeech.Default.SpeakAsync(
+                        "SPEED CHECK, YOUR GONNA FALL OUTTA THE SKY LIKE A PIANO",
+                        new SpeechOptions { Volume = 1.0f },
+                        ttsCts.Token);
+                    Log.Debug("MainPage", "TTS: Played 'SPEED CHECK' at maximum volume");
+                    await Task.Delay(5000, ttsCts.Token); // Repeat every 5 seconds
                 }
             }
             catch (TaskCanceledException)
@@ -313,7 +349,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             }
             catch (Exception ex)
             {
-                Log.Error("MainPage", $"TTS error: {ex.Message}");
+                Log.Error("MainPage", $"TTS error: {ex.Message}\n{ex.StackTrace}");
             }
             finally
             {
@@ -357,6 +393,24 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             await _ttsTask;
         }
 
+        // Restore original media volume (Android-specific)
+#if ANDROID
+        try
+        {
+            if (_originalMediaVolume != -1)
+            {
+                var audioManager = (Android.Media.AudioManager)Android.App.Application.Context.GetSystemService(Context.AudioService);
+                audioManager.SetStreamVolume(Android.Media.Stream.Music, _originalMediaVolume, 0);
+                Log.Debug("MainPage", $"Restored media volume to original: {_originalMediaVolume}");
+                _originalMediaVolume = -1; // Reset after restoring
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("MainPage", $"Failed to restore media volume: {ex.Message}\n{ex.StackTrace}");
+        }
+#endif
+
         MainThread.BeginInvokeOnMainThread(() =>
         {
             IsFlashing = false;
@@ -391,7 +445,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            Log.Error("MainPage", $"Failed to bring app to foreground: {ex.Message}");
+            Log.Error("MainPage", $"Failed to bring app to foreground: {ex.Message}\n{ex.StackTrace}");
             Debug.WriteLine($"MainPage: Failed to bring app to foreground: {ex.Message}");
         }
     }
