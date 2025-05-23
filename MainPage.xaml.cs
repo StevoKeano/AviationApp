@@ -12,6 +12,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Android.App;
 using Android.Content.PM;
+using Microsoft.Maui.Storage;
 
 namespace AviationApp;
 
@@ -25,7 +26,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private string altitudeText = "Altitude: N/A";
     private string speedText = "Speed: N/A";
     private string lastUpdateText = "Last Update: N/A";
-    private string dmmsText = "";
+    private string dmmsText; // Removed initialization to ""
     private bool isActive = false;
     private ButtonState buttonState = ButtonState.Paused;
     private bool isFlashing = false;
@@ -69,7 +70,17 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     public string DmmsText
     {
         get => dmmsText;
-        set { dmmsText = value; OnPropertyChanged(); }
+        set
+        {
+            if (dmmsText != value)
+            {
+                dmmsText = value;
+                OnPropertyChanged();
+                // Save the DMMS value to Preferences when it changes
+                Preferences.Set("DmmsValue", value);
+                Log.Debug("MainPage", $"Saved DmmsText to Preferences: {value}");
+            }
+        }
     }
 
     public bool IsActive
@@ -98,8 +109,16 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
     public MainPage()
     {
+        // Set default DmmsText before InitializeComponent to ensure binding picks it up
+        dmmsText = Preferences.Get("DmmsValue", "70");
+        Log.Debug("MainPage", $"Loaded DmmsText from Preferences: {dmmsText}");
+
         InitializeComponent();
         BindingContext = this;
+
+        // Ensure UI updates with the initial value
+        OnPropertyChanged(nameof(DmmsText));
+
         WeakReferenceMessenger.Default.Register<LocationMessage>(this, async (recipient, message) =>
         {
             try
@@ -390,6 +409,9 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     public new event PropertyChangedEventHandler PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
     {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        });
     }
 }

@@ -53,12 +53,24 @@
                     SemanticProperties.HeadingLevel="Level1" />
                 <Entry Placeholder="Enter DMMS (knots)"
                        Keyboard="Numeric"
-                       Text="{Binding DmmsText}" />
+                       Text="{Binding DmmsText}"
+                       FontAttributes="Bold"
+                       HorizontalTextAlignment="Center" />
                 <Label
                     Text="(defined minimum maneuvering speed)"
                     Style="{StaticResource SubHeadline}"
                     SemanticProperties.HeadingLevel="Level2"
                     SemanticProperties.Description="DMMS (defined minimum maneuvering speed)" />
+                <Label
+                    Text=""
+                    Style="{StaticResource SubHeadline}"
+                    SemanticProperties.HeadingLevel="Level3"
+                    SemanticProperties.Description="" />
+                <Label
+                    Text=""
+                    Style="{StaticResource SubHeadline}"
+                    SemanticProperties.HeadingLevel="Level4"
+                    SemanticProperties.Description="" />
 
                 <!-- 3D Button -->
                 <Border x:Name="CounterBtnBorder"
