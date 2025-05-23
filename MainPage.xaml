@@ -2,6 +2,27 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="AviationApp.MainPage">
+    <ContentPage.Resources>
+        <!-- Define Gradients -->
+        <LinearGradientBrush x:Key="ActiveGradient" EndPoint="0,1">
+            <GradientStop Color="#FF4500" Offset="0.0" />
+            <!-- Red-Orange -->
+            <GradientStop Color="#FF8C00" Offset="1.0" />
+            <!-- Orange -->
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="PausedGradient" EndPoint="0,1">
+            <GradientStop Color="#696969" Offset="0.0" />
+            <!-- Gray -->
+            <GradientStop Color="#A9A9A9" Offset="1.0" />
+            <!-- Light Gray -->
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="FailedGradient" EndPoint="0,1">
+            <GradientStop Color="#FFA500" Offset="0.0" />
+            <!-- Orange -->
+            <GradientStop Color="#FFD700" Offset="1.0" />
+            <!-- Gold -->
+        </LinearGradientBrush>
+    </ContentPage.Resources>
 
     <ScrollView>
         <VerticalStackLayout
@@ -11,34 +32,83 @@
                 Source="dotnet_bot.png"
                 HeightRequest="185"
                 Aspect="AspectFit"
-                SemanticProperties.Description="dot net bot in a race car number eight" />
+                SemanticProperties.Description="planes drop like a piano below DMMS" />
 
             <Label
-                Text="Hello, World!"
+                Text="Drop below DMMS and DIE!"
                 Style="{StaticResource Headline}"
                 SemanticProperties.HeadingLevel="Level1" />
-
+            <Entry x:Name="DmmsEntry"
+                   Placeholder="Enter DMMS (knots)"
+                   Keyboard="Numeric" />
             <Label
-                Text="Welcome to 
-.NET Multi-platform App UI"
+                Text="(defined minimum maneuvering speed)"
                 Style="{StaticResource SubHeadline}"
                 SemanticProperties.HeadingLevel="Level2"
-                SemanticProperties.Description="Welcome to dot net Multi platform App U I" />
+                SemanticProperties.Description="DMMS (defined minimum maneuvering speed)" />
 
-            <Button
-                x:Name="CounterBtn"
-                Text="Click me" 
-                SemanticProperties.Hint="Counts the number of times you click"
-                Clicked="OnCounterClicked"
-                HorizontalOptions="Fill" />
-            <Label
+            <!-- 3D Button -->
+            <Border x:Name="CounterBtnBorder"
+                    Stroke="#000000"
+                    StrokeThickness="2"
+                    StrokeShape="RoundRectangle 20"
+                    Background="{StaticResource ActiveGradient}"
+                    Padding="10"
+                    Margin="10"
+                    HorizontalOptions="CenterAndExpand">
+                <Border.Shadow>
+                    <Shadow Brush="#333333" Offset="5,5" Radius="10" Opacity="0.5" />
+                </Border.Shadow>
+                <Button x:Name="CounterBtn"
+                        Text="DMMS: ACTIVATE NOW!"
+                        FontSize="18"
+                        FontAttributes="Bold"
+                        TextColor="White"
+                        BackgroundColor="Transparent"
+                        Clicked="OnCounterClicked"
+                        Scale="1"
+                        SemanticProperties.Hint="Start DMMS monitoring">
+                    <Button.Triggers>
+                        <!-- Active State -->
+                        <DataTrigger TargetType="Button"
+                                     Binding="{Binding IsActive, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                     Value="True">
+                            <Setter Property="Text" Value="DMMS Monitoring Started" />
+                            <Setter Property="TextColor" Value="White" />
+                            <Setter Property="SemanticProperties.Hint" Value="Start DMMS monitoring" />
+                        </DataTrigger>
+                        <!-- Paused State -->
+                        <DataTrigger TargetType="Button"
+                                     Binding="{Binding IsActive, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                     Value="False">
+                            <Setter Property="Text" Value="=== P A U S E D ===" />
+                            <Setter Property="TextColor" Value="White" />
+                            <Setter Property="SemanticProperties.Hint" Value="Resume DMMS monitoring" />
+                        </DataTrigger>
+                        <!-- Failed State -->
+                        <DataTrigger TargetType="Button"
+                                     Binding="{Binding ButtonState, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                     Value="Failed">
+                            <Setter Property="Text" Value="Pause failed, please click again." />
+                            <Setter Property="TextColor" Value="White" />
+                            <Setter Property="SemanticProperties.Hint" Value="Retry DMMS monitoring" />
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+                <!-- Animation on tap -->
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnButtonTapped" />
+                </Border.GestureRecognizers>
+            </Border>
+
+            <!--<Label
                 Text="{Binding LatitudeText}"
                 Style="{StaticResource SubHeadline}"
                 SemanticProperties.HeadingLevel="Level3" />
             <Label
                 Text="{Binding LongitudeText}"
                 Style="{StaticResource SubHeadline}"
-                SemanticProperties.HeadingLevel="Level3" />
+                SemanticProperties.HeadingLevel="Level3" />-->
             <Label
                 Text="{Binding AltitudeText}"
                 Style="{StaticResource SubHeadline}"
@@ -53,5 +123,4 @@
                 SemanticProperties.HeadingLevel="Level3" />
         </VerticalStackLayout>
     </ScrollView>
-
 </ContentPage>

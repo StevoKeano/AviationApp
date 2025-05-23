@@ -6,11 +6,14 @@ using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Devices.Sensors;
 using Microsoft.Maui.Dispatching;
+using Microsoft.Maui.Graphics.Platform;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace AviationApp;
+
+public enum ButtonState { Active, Paused, Failed }
 
 public partial class MainPage : ContentPage, INotifyPropertyChanged
 {
@@ -20,6 +23,8 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private string altitudeText = "Altitude: N/A";
     private string speedText = "Speed: N/A";
     private string lastUpdateText = "Last Update: N/A";
+    private bool isActive = false;
+    private ButtonState buttonState = ButtonState.Paused;
 
     public string LatitudeText
     {
@@ -51,25 +56,32 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         set { lastUpdateText = value; OnPropertyChanged(); }
     }
 
+    public bool IsActive
+    {
+        get => isActive;
+        set { isActive = value; OnPropertyChanged(); }
+    }
+
+    public ButtonState ButtonState
+    {
+        get => buttonState;
+        set { buttonState = value; OnPropertyChanged(); }
+    }
+
     public MainPage()
     {
         InitializeComponent();
         BindingContext = this;
-        // Register with strong reference to ensure persistence
         WeakReferenceMessenger.Default.Register<LocationMessage>(this, (recipient, message) =>
         {
             try
             {
-                Log.Debug("MainPage", "Received LocationMessage");
+                Log.Debug("MainPage", $"Received LocationMessage at {DateTime.Now:HH:mm:ss}");
                 var androidLocation = message.Location;
                 var updateTime = message.UpdateTime;
                 if (androidLocation == null)
                 {
                     Log.Error("MainPage", "Received null location");
-                    MainThread.BeginInvokeOnMainThread(async () =>
-                    {
-                        await DisplayAlert("Location Error", "Unable to retrieve location data.", "OK");
-                    });
                     return;
                 }
 
@@ -81,33 +93,27 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     Speed = androidLocation.HasSpeed ? androidLocation.Speed : null
                 };
 
-                float speedKmh = (float)(location.Speed.GetValueOrDefault() * 3.6);
+                // Convert speed from m/s to knots (1 knot = 0.514444 m/s)
+                float speedKnots = (float)(location.Speed.GetValueOrDefault() / 0.514444);
+                // Convert altitude from meters to feet (1 meter = 3.28084 feet)
+                double? altitudeFeet = location.Altitude.HasValue ? location.Altitude.Value * 3.28084 : null;
+
+                // Update UI labels (latitude/longitude not displayed per XAML)
                 LatitudeText = $"Latitude: {location.Latitude:F6}";
                 LongitudeText = $"Longitude: {location.Longitude:F6}";
-                AltitudeText = $"Altitude: {location.Altitude?.ToString("F1") ?? "N/A"} m";
-                SpeedText = $"Speed: {speedKmh:F1} km/h";
+                AltitudeText = $"Altitude: {altitudeFeet?.ToString("F1") ?? "N/A"} ft";
+                SpeedText = $"Speed: {speedKnots:F1} knots";
                 LastUpdateText = $"Last Update: {updateTime:HH:mm:ss}";
 
-                MainThread.BeginInvokeOnMainThread(async () =>
-                {
-                    try
-                    {
-                        await Shell.Current.DisplayAlert("Location Update",
-                            $"Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, " +
-                            $"Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m, Speed: {speedKmh:F1} km/h, " +
-                            $"Last Update: {updateTime:HH:mm:ss}", "OK");
-                        Log.Debug("MainPage", "Displayed alert");
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error("MainPage", $"DisplayAlert error: {ex.Message}\n{ex.StackTrace}");
-                        await DisplayAlert("Error", "Failed to display location.", "OK");
-                    }
-                });
+                // Log location info (km/h and meters for GPX, knots and feet for clarity)
+                float speedKmh = (float)(location.Speed.GetValueOrDefault() * 3.6);
+                Debug.WriteLine($"MainPage: Location Update - Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m ({altitudeFeet?.ToString("F1") ?? "N/A"}ft), Speed: {speedKmh:F1} km/h ({speedKnots:F1} knots), Time: {updateTime:HH:mm:ss}");
+                Log.Debug("MainPage", $"Location Update - Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m ({altitudeFeet?.ToString("F1") ?? "N/A"}ft), Speed: {speedKmh:F1} km/h ({speedKnots:F1} knots), Time: {updateTime:HH:mm:ss}");
             }
             catch (Exception ex)
             {
                 Log.Error("MainPage", $"Message handler error: {ex.Message}\n{ex.StackTrace}");
+                Debug.WriteLine($"MainPage: Message handler error: {ex.Message}\n{ex.StackTrace}");
             }
         });
     }
@@ -119,19 +125,56 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             Debug.WriteLine("MainPage: OnCounterClicked started");
             await StartLocationService();
             Debug.WriteLine("MainPage: OnCounterClicked completed");
+            IsActive = true;
+            ButtonState = ButtonState.Active;
+            CounterBtnBorder.Background = (Brush)Resources["ActiveGradient"];
+            count = 1;
         }
         else
         {
             Debug.WriteLine("MainPage: Location Service already called");
+            if (StopLocationService() == 0)
+            {
+                count = 0;
+                IsActive = false;
+                ButtonState = ButtonState.Paused;
+                CounterBtnBorder.Background = (Brush)Resources["PausedGradient"];
+            }
+            else
+            {
+                ButtonState = ButtonState.Failed;
+                CounterBtn.Text = $"Pause failed, please click again. Tried {count} times...";
+                CounterBtnBorder.Background = (Brush)Resources["FailedGradient"];
+            }
         }
-        count++;
 
         if (count == 1)
-            CounterBtn.Text = $"Clicked {count} time";
+        {
+            CounterBtn.Text = $"DMMS Monitoring Started";
+            ButtonState = ButtonState.Active;
+            CounterBtnBorder.Background = (Brush)Resources["ActiveGradient"];
+        }
         else
-            CounterBtn.Text = $"Clicked {count} times";
+        {
+            if (ButtonState == ButtonState.Paused)
+            {
+                CounterBtn.Text = $"=== P A U S E D ===";
+                CounterBtn.TextColor = Microsoft.Maui.Graphics.Color.FromRgba("#FFFFFF");
+            }
+            else if (ButtonState == ButtonState.Failed)
+            {
+                CounterBtn.Text = $"Pause failed, please click again. Tried {count} times...";
+            }
+        }
 
         SemanticScreenReader.Announce(CounterBtn.Text);
+    }
+
+    private async void OnButtonTapped(object sender, EventArgs e)
+    {
+        // Scale animation for 3D button press
+        await CounterBtnBorder.ScaleTo(0.95, 100);
+        await CounterBtnBorder.ScaleTo(1.0, 100);
     }
 
     private async Task StartLocationService()
@@ -143,8 +186,8 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             Debug.WriteLine($"MainPage: Permission status: {status}");
             if (status != PermissionStatus.Granted)
             {
-                await DisplayAlert("Permission Denied", "Location permission is required for tracking.", "OK");
-                Debug.WriteLine("MainPage: Permission denied");
+                Debug.WriteLine("MainPage: Permission Denied - Location permission is required for tracking.");
+                Log.Debug("MainPage", "Permission Denied - Location permission is required for tracking.");
                 return;
             }
 
@@ -155,12 +198,12 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"MainPage: StartLocationService failed: {ex}");
-            await DisplayAlert("Error", $"Failed to start service: {ex.Message}", "OK");
+            Debug.WriteLine($"MainPage: Failed to start service: {ex.Message}");
+            Log.Debug("MainPage", $"Failed to start service: {ex.Message}");
         }
     }
 
-    private void StopLocationService()
+    private int StopLocationService()
     {
         Debug.WriteLine("MainPage: StopLocationService started");
         try
@@ -169,10 +212,13 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             var stopServiceIntent = new Intent(context, typeof(AviationApp.Services.LocationService));
             context.StopService(stopServiceIntent);
             Debug.WriteLine("MainPage: StopService called");
+            return 0;
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"MainPage: StopLocationService failed: {ex}");
+            Debug.WriteLine($"MainPage: StopLocationService failed: {ex.Message}");
+            Log.Debug("MainPage", $"StopLocationService failed: {ex.Message}");
+            return -1;
         }
     }
 
