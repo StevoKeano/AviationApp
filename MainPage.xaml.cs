@@ -31,6 +31,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private bool isFlashing = false;
     private Color pageBackground = Colors.Transparent;
     private CancellationTokenSource flashingCts = null;
+    private Task _flashingTask = null;
+    private readonly object _flashLock = new object();
+    private DateTime _lastFlashUpdate = DateTime.MinValue;
+    private readonly TimeSpan _debounceInterval = TimeSpan.FromMilliseconds(100);
 
     public string LatitudeText
     {
@@ -86,6 +90,12 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         set { pageBackground = value; OnPropertyChanged(); }
     }
 
+    public bool IsFlashing
+    {
+        get => isFlashing;
+        set { isFlashing = value; OnPropertyChanged(); }
+    }
+
     public MainPage()
     {
         InitializeComponent();
@@ -94,6 +104,13 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         {
             try
             {
+                // Debounce rapid updates
+                if (DateTime.Now - _lastFlashUpdate < _debounceInterval)
+                {
+                    return;
+                }
+                _lastFlashUpdate = DateTime.Now;
+
                 Log.Debug("MainPage", $"Received LocationMessage at {DateTime.Now:HH:mm:ss}");
                 var androidLocation = message.Location;
                 var updateTime = message.UpdateTime;
@@ -128,19 +145,19 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 Debug.WriteLine($"MainPage: Location Update - Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m ({altitudeFeet?.ToString("F1") ?? "N/A"}ft), Speed: {speedKmh:F1} km/h ({speedKnots:F1} knots), Time: {updateTime:HH:mm:ss}");
                 Log.Debug("MainPage", $"Location Update - Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m ({altitudeFeet?.ToString("F1") ?? "N/A"}ft), Speed: {speedKmh:F1} km/h ({speedKnots:F1} knots), Time: {updateTime:HH:mm:ss}");
 
-                // Check DMMS and flash background if speed is below
+                // Check DMMS and flash background with skull if speed is below
                 float dmmsKnots = 0f; // Initialize to safe default
                 bool isDmmsValid = IsActive && float.TryParse(DmmsText, out dmmsKnots) && dmmsKnots > 0;
                 if (isDmmsValid && speedKnots < dmmsKnots)
                 {
-                    if (!isFlashing)
+                    if (!IsFlashing)
                     {
-                        isFlashing = true;
+                        IsFlashing = true;
                         await StartFlashingBackground();
                         BringAppToForeground();
                     }
                 }
-                else if (isFlashing && (!isDmmsValid || speedKnots >= dmmsKnots || !IsActive))
+                else if (IsFlashing)
                 {
                     await StopFlashingBackground();
                 }
@@ -155,7 +172,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
     private async void OnCounterClicked(object sender, EventArgs e)
     {
-        if (count < 1 || !isActive)
+        if (count < 1 || !IsActive)
         {
             Debug.WriteLine("MainPage: OnCounterClicked started");
             await StartLocationService();
@@ -169,7 +186,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         {
             Debug.WriteLine("MainPage: Location Service already called");
             if (StopLocationService() == 0)
-            {                
+            {
                 IsActive = false;
                 ButtonState = ButtonState.Paused;
                 CounterBtnBorder.Background = (Brush)Resources["PausedGradient"];
@@ -198,8 +215,8 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             }
         }
 
-        // Stop flashing on button tap
-        if (isFlashing)
+        // Stop flashing and skull on button tap
+        if (IsFlashing)
         {
             await StopFlashingBackground();
         }
@@ -216,38 +233,81 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
     private async Task StartFlashingBackground()
     {
-        flashingCts = new CancellationTokenSource();
-        try
+        lock (_flashLock)
         {
-            while (!flashingCts.Token.IsCancellationRequested)
+            if (IsFlashing && flashingCts != null && !flashingCts.IsCancellationRequested)
             {
-                PageBackground = Colors.Red.WithAlpha(0.8f);
-                await Task.Delay(500, flashingCts.Token);
-                PageBackground = Colors.Transparent;
-                await Task.Delay(500, flashingCts.Token);
+                Log.Debug("MainPage", "Flashing already active, skipping start");
+                return;
             }
+            flashingCts?.Dispose();
+            flashingCts = new CancellationTokenSource();
+            IsFlashing = true;
+            Log.Debug("MainPage", "New CancellationTokenSource created for flashing");
         }
-        catch (TaskCanceledException)
+
+        _flashingTask = Task.Run(async () =>
         {
-            // Expected when cancelled
-        }
-        finally
-        {
-            PageBackground = Colors.Transparent;
-        }
+            try
+            {
+                while (!flashingCts.Token.IsCancellationRequested)
+                {
+                    MainThread.BeginInvokeOnMainThread(() => PageBackground = Colors.Red.WithAlpha(0.8f));
+                    await Task.Delay(500, flashingCts.Token);
+                    MainThread.BeginInvokeOnMainThread(() => PageBackground = Colors.Transparent);
+                    await Task.Delay(500, flashingCts.Token);
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                Log.Debug("MainPage", "Flashing task cancelled");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("MainPage", $"Flashing error: {ex.Message}");
+            }
+            finally
+            {
+                lock (_flashLock)
+                {
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        PageBackground = Colors.Transparent;
+                        IsFlashing = false;
+                    });
+                    flashingCts?.Dispose();
+                    flashingCts = null;
+                    _flashingTask = null;
+                    Log.Debug("MainPage", "Flashing task cleaned up");
+                }
+            }
+        });
     }
 
     private async Task StopFlashingBackground()
     {
-        if (flashingCts != null)
+        lock (_flashLock)
         {
-            flashingCts.Cancel();
-            flashingCts.Dispose();
-            flashingCts = null;
+            if (flashingCts != null)
+            {
+                flashingCts.Cancel();
+                flashingCts.Dispose();
+                flashingCts = null;
+                Log.Debug("MainPage", "CancellationTokenSource cancelled and disposed");
+            }
         }
-        isFlashing = false;
-        PageBackground = Colors.Transparent;
-        await Task.CompletedTask;
+
+        if (_flashingTask != null)
+        {
+            await _flashingTask;
+        }
+
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            IsFlashing = false;
+            PageBackground = Colors.Transparent;
+        });
+        Log.Debug("MainPage", "Flashing stopped");
     }
 
     private void BringAppToForeground()

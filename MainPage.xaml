@@ -25,95 +25,108 @@
         </LinearGradientBrush>
     </ContentPage.Resources>
 
-    <ScrollView>
-        <VerticalStackLayout
-            Padding="30,0"
-            Spacing="25">
-            <Image
-                Source="dotnet_bot.png"
-                HeightRequest="185"
-                Aspect="AspectFit"
-                SemanticProperties.Description="planes drop like a piano below DMMS" />
+    <AbsoluteLayout>
+        <!-- Skull and Crossbones Overlay -->
+        <Image x:Name="SkullImage"
+               Source="skull_crossbones.png"
+               IsVisible="{Binding IsFlashing}"
+               AbsoluteLayout.LayoutFlags="PositionProportional"
+               AbsoluteLayout.LayoutBounds="0.5, 0.5, 200, 200"
+               Opacity="0.9"
+               Aspect="AspectFit" />
 
-            <Label
-                Text="Drop below DMMS and DIE!"
-                Style="{StaticResource Headline}"
-                SemanticProperties.HeadingLevel="Level1" />
-            <Entry Placeholder="Enter DMMS (knots)"
-                   Keyboard="Numeric"
-                   Text="{Binding DmmsText}" />
-            <Label
-                Text="(defined minimum maneuvering speed)"
-                Style="{StaticResource SubHeadline}"
-                SemanticProperties.HeadingLevel="Level2"
-                SemanticProperties.Description="DMMS (defined minimum maneuvering speed)" />
+        <!-- Main Content -->
+        <ScrollView AbsoluteLayout.LayoutFlags="All"
+                    AbsoluteLayout.LayoutBounds="0, 0, 1, 1">
+            <VerticalStackLayout
+                Padding="30,0"
+                Spacing="25">
+                <Image
+                    Source="dotnet_bot.png"
+                    HeightRequest="185"
+                    Aspect="AspectFit"
+                    SemanticProperties.Description="planes drop like a piano below DMMS" />
 
-            <!-- 3D Button -->
-            <Border x:Name="CounterBtnBorder"
-                    Stroke="#000000"
-                    StrokeThickness="2"
-                    StrokeShape="RoundRectangle 20"
-                    Background="{StaticResource ActiveGradient}"
-                    Padding="10"
-                    Margin="10"
-                    HorizontalOptions="CenterAndExpand">
-                <Border.Shadow>
-                    <Shadow Brush="#333333" Offset="5,5" Radius="10" Opacity="0.5" />
-                </Border.Shadow>
-                <Button x:Name="CounterBtn"
-                        Text="DMMS Monitoring Started"
-                        FontSize="18"
-                        FontAttributes="Bold"
-                        TextColor="White"
-                        BackgroundColor="Transparent"
-                        Clicked="OnCounterClicked"
-                        Scale="1"
-                        SemanticProperties.Hint="Start DMMS monitoring">
-                    <Button.Triggers>
-                        <!-- Active State -->
-                        <DataTrigger TargetType="Button"
-                                     Binding="{Binding IsActive, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                                     Value="True">
-                            <Setter Property="Text" Value="DMMS Monitoring Started" />
-                            <Setter Property="TextColor" Value="White" />
-                            <Setter Property="SemanticProperties.Hint" Value="Start DMMS monitoring" />
-                        </DataTrigger>
-                        <!-- Paused State -->
-                        <DataTrigger TargetType="Button"
-                                     Binding="{Binding IsActive, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                                     Value="False">
-                            <Setter Property="Text" Value="=== P A U S E D ===" />
-                            <Setter Property="TextColor" Value="White" />
-                            <Setter Property="SemanticProperties.Hint" Value="Resume DMMS monitoring" />
-                        </DataTrigger>
-                        <!-- Failed State -->
-                        <DataTrigger TargetType="Button"
-                                     Binding="{Binding ButtonState, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
-                                     Value="Failed">
-                            <Setter Property="Text" Value="Pause failed, please click again." />
-                            <Setter Property="TextColor" Value="White" />
-                            <Setter Property="SemanticProperties.Hint" Value="Retry DMMS monitoring" />
-                        </DataTrigger>
-                    </Button.Triggers>
-                </Button>
-                <!-- Animation on tap -->
-                <Border.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnButtonTapped" />
-                </Border.GestureRecognizers>
-            </Border>
+                <Label
+                    Text="Drop below DMMS and DIE!"
+                    Style="{StaticResource Headline}"
+                    SemanticProperties.HeadingLevel="Level1" />
+                <Entry Placeholder="Enter DMMS (knots)"
+                       Keyboard="Numeric"
+                       Text="{Binding DmmsText}" />
+                <Label
+                    Text="(defined minimum maneuvering speed)"
+                    Style="{StaticResource SubHeadline}"
+                    SemanticProperties.HeadingLevel="Level2"
+                    SemanticProperties.Description="DMMS (defined minimum maneuvering speed)" />
 
-            <Label
-                Text="{Binding AltitudeText}"
-                Style="{StaticResource SubHeadline}"
-                SemanticProperties.HeadingLevel="Level3" />
-            <Label
-                Text="{Binding SpeedText}"
-                Style="{StaticResource SubHeadline}"
-                SemanticProperties.HeadingLevel="Level3" />
-            <Label
-                Text="{Binding LastUpdateText}"
-                Style="{StaticResource SubHeadline}"
-                SemanticProperties.HeadingLevel="Level3" />
-        </VerticalStackLayout>
-    </ScrollView>
+                <!-- 3D Button -->
+                <Border x:Name="CounterBtnBorder"
+                        Stroke="#000000"
+                        StrokeThickness="2"
+                        StrokeShape="RoundRectangle 20"
+                        Background="{StaticResource ActiveGradient}"
+                        Padding="10"
+                        Margin="10"
+                        HorizontalOptions="CenterAndExpand">
+                    <Border.Shadow>
+                        <Shadow Brush="#333333" Offset="5,5" Radius="10" Opacity="0.5" />
+                    </Border.Shadow>
+                    <Button x:Name="CounterBtn"
+                            Text="DMMS Monitoring Started"
+                            FontSize="18"
+                            FontAttributes="Bold"
+                            TextColor="White"
+                            BackgroundColor="Transparent"
+                            Clicked="OnCounterClicked"
+                            Scale="1"
+                            SemanticProperties.Hint="Start DMMS monitoring">
+                        <Button.Triggers>
+                            <!-- Active State -->
+                            <DataTrigger TargetType="Button"
+                                         Binding="{Binding IsActive, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                         Value="True">
+                                <Setter Property="Text" Value="DMMS Monitoring Started" />
+                                <Setter Property="TextColor" Value="White" />
+                                <Setter Property="SemanticProperties.Hint" Value="Start DMMS monitoring" />
+                            </DataTrigger>
+                            <!-- Paused State -->
+                            <DataTrigger TargetType="Button"
+                                         Binding="{Binding IsActive, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                         Value="False">
+                                <Setter Property="Text" Value="=== P A U S E D ===" />
+                                <Setter Property="TextColor" Value="White" />
+                                <Setter Property="SemanticProperties.Hint" Value="Resume DMMS monitoring" />
+                            </DataTrigger>
+                            <!-- Failed State -->
+                            <DataTrigger TargetType="Button"
+                                         Binding="{Binding ButtonState, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                         Value="Failed">
+                                <Setter Property="Text" Value="Pause failed, please click again." />
+                                <Setter Property="TextColor" Value="White" />
+                                <Setter Property="SemanticProperties.Hint" Value="Retry DMMS monitoring" />
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
+                    <!-- Animation on tap -->
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnButtonTapped" />
+                    </Border.GestureRecognizers>
+                </Border>
+
+                <Label
+                    Text="{Binding AltitudeText}"
+                    Style="{StaticResource SubHeadline}"
+                    SemanticProperties.HeadingLevel="Level3" />
+                <Label
+                    Text="{Binding SpeedText}"
+                    Style="{StaticResource SubHeadline}"
+                    SemanticProperties.HeadingLevel="Level3" />
+                <Label
+                    Text="{Binding LastUpdateText}"
+                    Style="{StaticResource SubHeadline}"
+                    SemanticProperties.HeadingLevel="Level3" />
+            </VerticalStackLayout>
+        </ScrollView>
+    </AbsoluteLayout>
 </ContentPage>
