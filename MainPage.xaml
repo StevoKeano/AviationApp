@@ -7,21 +7,15 @@
         <!-- Define Gradients -->
         <LinearGradientBrush x:Key="ActiveGradient" EndPoint="0,1">
             <GradientStop Color="#FF4500" Offset="0.0" />
-            <!-- Red-Orange -->
             <GradientStop Color="#FF8C00" Offset="1.0" />
-            <!-- Orange -->
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="PausedGradient" EndPoint="0,1">
             <GradientStop Color="#696969" Offset="0.0" />
-            <!-- Gray -->
             <GradientStop Color="#A9A9A9" Offset="1.0" />
-            <!-- Light Gray -->
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="FailedGradient" EndPoint="0,1">
             <GradientStop Color="#FFA500" Offset="0.0" />
-            <!-- Orange -->
             <GradientStop Color="#FFD700" Offset="1.0" />
-            <!-- Gold -->
         </LinearGradientBrush>
     </ContentPage.Resources>
 
@@ -101,7 +95,6 @@
                             Scale="1"
                             SemanticProperties.Hint="Start DMMS monitoring">
                         <Button.Triggers>
-                            <!-- Active State -->
                             <DataTrigger TargetType="Button"
                                          Binding="{Binding IsActive, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                          Value="True">
@@ -109,7 +102,6 @@
                                 <Setter Property="TextColor" Value="White" />
                                 <Setter Property="SemanticProperties.Hint" Value="Start DMMS monitoring" />
                             </DataTrigger>
-                            <!-- Paused State -->
                             <DataTrigger TargetType="Button"
                                          Binding="{Binding IsActive, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                          Value="False">
@@ -117,7 +109,6 @@
                                 <Setter Property="TextColor" Value="White" />
                                 <Setter Property="SemanticProperties.Hint" Value="Resume DMMS monitoring" />
                             </DataTrigger>
-                            <!-- Failed State -->
                             <DataTrigger TargetType="Button"
                                          Binding="{Binding ButtonState, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
                                          Value="Failed">
@@ -127,7 +118,6 @@
                             </DataTrigger>
                         </Button.Triggers>
                     </Button>
-                    <!-- Animation on tap -->
                     <Border.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnButtonTapped" />
                     </Border.GestureRecognizers>
@@ -143,6 +133,11 @@
                     SemanticProperties.HeadingLevel="Level3" />
                 <Label
                     Text="{Binding LastUpdateText}"
+                    Style="{StaticResource SubHeadline}"
+                    SemanticProperties.HeadingLevel="Level3" />
+                <Label
+                    x:Name="ClosestAirportLabel"
+                    Text="{Binding ClosestAirportText}"
                     Style="{StaticResource SubHeadline}"
                     SemanticProperties.HeadingLevel="Level3" />
             </VerticalStackLayout>

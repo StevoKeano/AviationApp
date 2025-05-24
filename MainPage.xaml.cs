@@ -14,6 +14,11 @@ using Android.App;
 using Android.Content.PM;
 using Microsoft.Maui.Storage;
 using Microsoft.Maui.Media;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace AviationApp;
 
@@ -45,8 +50,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private string ttsAlertText;
     private float messageFrequency;
     private bool showSkull;
-    private bool autoActivateMonitoring; // New: Auto-activate DMMS monitoring
-    private bool suppressWarningsUntilAboveDmms; // New: Suppress warnings at startup
+    private bool autoActivateMonitoring;
+    private bool suppressWarningsUntilAboveDmms;
+    private string closestAirportText = "Closest Airport: N/A";
+    private List<Airport> airports;
 
     public string LatitudeText
     {
@@ -139,11 +146,23 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             Log.Debug("MainPage", $"ShowSkullWarning set to: {showSkullWarning}");
         }
     }
-
     private void UpdateSkullVisibility()
     {
         ShowSkullWarning = IsFlashing && showSkull;
         Log.Debug("MainPage", $"UpdateSkullVisibility - IsFlashing: {IsFlashing}, ShowSkull: {showSkull}, ShowSkullWarning: {ShowSkullWarning}");
+    }
+    public string ClosestAirportText
+    {
+        get => closestAirportText;
+        set { closestAirportText = value; OnPropertyChanged(); }
+    }
+
+    private class Airport
+    {
+        public string StationId { get; set; } // Changed from ICAO
+        public string Site { get; set; } // Changed from Name
+        public double Latitude { get; set; }
+        public double Longitude { get; set; }
     }
 
     public MainPage()
@@ -154,9 +173,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         ttsAlertText = Preferences.Get("TtsAlertText", "SPEED CHECK, YOUR GONNA FALL OUTTA THE SKY LIKE A PIANO");
         messageFrequency = Preferences.Get("MessageFrequency", 5f);
         showSkull = Preferences.Get("ShowSkull", false);
-        autoActivateMonitoring = Preferences.Get("AutoActivateMonitoring", true); // New: Default true
+        autoActivateMonitoring = Preferences.Get("AutoActivateMonitoring", true);
         showSkullWarning = false;
-        suppressWarningsUntilAboveDmms = true; // New: Initialize to suppress until speed check
+        suppressWarningsUntilAboveDmms = true;
+        airports = new List<Airport>();
         Log.Debug("MainPage", $"Loaded settings at startup - DmmsText: {dmmsText}, WarningLabelText: {warningLabelText}, TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}, ShowSkull: {showSkull}, AutoActivateMonitoring: {autoActivateMonitoring}, ShowSkullWarning: {showSkullWarning}, SuppressWarnings: {suppressWarningsUntilAboveDmms}");
 
         InitializeComponent();
@@ -165,6 +185,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         OnPropertyChanged(nameof(DmmsText));
         OnPropertyChanged(nameof(WarningLabelText));
         OnPropertyChanged(nameof(ShowSkullWarning));
+        OnPropertyChanged(nameof(ClosestAirportText));
+
+        // Load airports from CSV
+        Task.Run(async () => await LoadAirportsAsync());
 
         // Test TTS on startup
         Task.Run(async () =>
@@ -216,6 +240,14 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 SpeedText = $"Speed: {speedKnots:F1} knots";
                 LastUpdateText = $"Last Update: {updateTime:HH:mm:ss}";
 
+                // Find closest airport
+                if (airports.Any())
+                {
+                    var closestAirport = FindClosestAirport(location.Latitude, location.Longitude);
+                    ClosestAirportText = $"Closest Airport: {closestAirport.StationId} ({closestAirport.Site})";
+                    Log.Debug("MainPage", $"Closest airport: {closestAirport.StationId} at {closestAirport.Latitude},{closestAirport.Longitude}");
+                }
+
                 float speedKmh = (float)(location.Speed.GetValueOrDefault() * 3.6);
                 Debug.WriteLine($"MainPage: Location Update - Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m ({altitudeFeet?.ToString("F1") ?? "N/A"}ft), Speed: {speedKmh:F1} km/h ({speedKnots:F1} knots), Time: {updateTime:HH:mm:ss}");
                 Log.Debug("MainPage", $"Location Update - Lat: {location.Latitude:F6}, Lon: {location.Longitude:F6}, Alt: {location.Altitude?.ToString("F1") ?? "N/A"}m ({altitudeFeet?.ToString("F1") ?? "N/A"}ft), Speed: {speedKmh:F1} km/h ({speedKnots:F1} knots), Time: {updateTime:HH:mm:ss}");
@@ -251,6 +283,62 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 Debug.WriteLine($"MainPage: Message handler error: {ex.Message}\n{ex.StackTrace}");
             }
         });
+    }
+
+    private async Task LoadAirportsAsync()
+    {
+        try
+        {
+            using var stream = await FileSystem.OpenAppPackageFileAsync("Stations.csv");
+            using var reader = new StreamReader(stream);
+            var csvContent = await reader.ReadToEndAsync();
+            var lines = csvContent.Split('\n').Skip(1); // Skip header
+            airports.Clear();
+
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var parts = line.Split(',', StringSplitOptions.None);
+                if (parts.Length < 9) continue; // Ensure enough columns
+                if (double.TryParse(parts[2], out var lat) && double.TryParse(parts[3], out var lon))
+                {
+                    airports.Add(new Airport
+                    {
+                        StationId = parts[0].Trim(),
+                        Site = parts[5].Trim(),
+                        Latitude = lat,
+                        Longitude = lon
+                    });
+                }
+            }
+            Log.Debug("MainPage", $"Loaded {airports.Count} airports from Stations.csv");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("MainPage", $"Failed to load airports: {ex.Message}\n{ex.StackTrace}");
+            ClosestAirportText = "Closest Airport: Error loading data";
+        }
+    }
+
+    private double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double R = 6371; // Earth's radius in km
+        var lat1Rad = lat1 * Math.PI / 180;
+        var lat2Rad = lat2 * Math.PI / 180;
+        var deltaLat = (lat2 - lat1) * Math.PI / 180;
+        var deltaLon = (lon2 - lon1) * Math.PI / 180;
+
+        var a = Math.Sin(deltaLat / 2) * Math.Sin(deltaLat / 2) +
+                Math.Cos(lat1Rad) * Math.Cos(lat2Rad) *
+                Math.Sin(deltaLon / 2) * Math.Sin(deltaLon / 2);
+        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+        return R * c; // Distance in km
+    }
+
+    private Airport FindClosestAirport(double latitude, double longitude)
+    {
+        return airports.OrderBy(a => CalculateDistance(latitude, longitude, a.Latitude, a.Longitude))
+                       .FirstOrDefault() ?? new Airport { StationId = "N/A", Site = "Unknown" };
     }
 
     private async void OnOptionsClicked(object sender, EventArgs e)
@@ -366,7 +454,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     MainThread.BeginInvokeOnMainThread(() => PageBackground = Colors.Red.WithAlpha(0.8f));
                     await Task.Delay(500, flashingCts.Token);
                     MainThread.BeginInvokeOnMainThread(() => PageBackground = Colors.Transparent);
-                    await Task.Delay(500, flashingCts.Token);
+                    await Task.Delay(500, flashingCts.Token); // Fixed typo
                 }
             }
             catch (TaskCanceledException)
@@ -404,7 +492,6 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     return;
                 }
                 Log.Debug("MainPage", "Starting TTS loop");
-                // Immediate TTS playback to align with flashing
                 await TextToSpeech.Default.SpeakAsync(
                     ttsAlertText,
                     new SpeechOptions { Volume = 1.0f },
@@ -588,7 +675,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         ShowSkullWarning = IsFlashing && showSkull;
         OnPropertyChanged(nameof(WarningLabelText));
         OnPropertyChanged(nameof(ShowSkullWarning));
-        Log.Debug("MainPage", $"OnAppearing - Reloaded settings: WarningLabelText: {warningLabelText}, TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}, ShowSkull: {showSkull}, AutoActivateMonitoring: {autoActivateMonitoring}, ShowSkullWarning: {ShowSkullWarning}, SuppressWarnings: {suppressWarningsUntilAboveDmms}");
+        Log.Debug("MainPage", $"OnAppearing - Reloaded settings: WarningLabelText: {warningLabelText}, TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}, ShowSkull: {showSkull}, AutoActivateMonitoring: {autoActivateMonitoring}, ShowSkullWarning: {showSkullWarning}, SuppressWarnings: {suppressWarningsUntilAboveDmms}");
 
         // Auto-activate DMMS monitoring if enabled
         if (autoActivateMonitoring && !IsActive)
@@ -602,5 +689,14 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             CounterBtn.Text = "DMMS Monitoring Started";
             SemanticScreenReader.Announce(CounterBtn.Text);
         }
+    }
+
+    public new event PropertyChangedEventHandler PropertyChanged;
+    protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        });
     }
 }
