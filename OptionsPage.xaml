@@ -25,6 +25,14 @@
                     IsToggled="{Binding ShowSkull}"
                     HorizontalOptions="Center" />
 
+            <!-- Auto-Activate DMMS Monitoring -->
+            <Label Text="Auto-Activate DMMS Monitoring on Startup"
+                   Style="{StaticResource Headline}"
+                   SemanticProperties.HeadingLevel="Level2" />
+            <Switch x:Name="AutoActivateToggle"
+                    IsToggled="{Binding AutoActivateMonitoring}"
+                    HorizontalOptions="Center" />
+
             <!-- Warning Label Text -->
             <Label Text="Warning Label Text"
                    Style="{StaticResource Headline}"

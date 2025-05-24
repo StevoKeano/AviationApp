@@ -11,6 +11,7 @@ public partial class OptionsPage : ContentPage, INotifyPropertyChanged
     private bool _showSkull;
     private string _warningLabelText;
     private string _ttsAlertText;
+    private bool _autoActivateMonitoring; // New: Auto-activate monitoring
 
     public float MessageFrequency
     {
@@ -36,16 +37,23 @@ public partial class OptionsPage : ContentPage, INotifyPropertyChanged
         set { _ttsAlertText = value; OnPropertyChanged(); }
     }
 
+    public bool AutoActivateMonitoring // New: Property for toggle
+    {
+        get => _autoActivateMonitoring;
+        set { _autoActivateMonitoring = value; OnPropertyChanged(); }
+    }
+
     public OptionsPage()
     {
         InitializeComponent();
         BindingContext = this;
 
         // Load saved settings or defaults
-        MessageFrequency = Preferences.Get("MessageFrequency", 10f); // Default 10 seconds
-        ShowSkull = Preferences.Get("ShowSkull", false); // Default off
-        WarningLabelText = Preferences.Get("WarningLabelText", "Drop below DMMS and DIE!"); // Default from MainPage
-        TtsAlertText = Preferences.Get("TtsAlertText", "SPEED CHECK"); // Default from MainPage
+        MessageFrequency = Preferences.Get("MessageFrequency", 10f);
+        ShowSkull = Preferences.Get("ShowSkull", false);
+        WarningLabelText = Preferences.Get("WarningLabelText", "Drop below DMMS and DIE!");
+        TtsAlertText = Preferences.Get("TtsAlertText", "SPEED CHECK");
+        AutoActivateMonitoring = Preferences.Get("AutoActivateMonitoring", true); // New: Default true
     }
 
     private async void OnSaveClicked(object sender, EventArgs e)
@@ -62,9 +70,10 @@ public partial class OptionsPage : ContentPage, INotifyPropertyChanged
         Preferences.Set("ShowSkull", ShowSkull);
         Preferences.Set("WarningLabelText", WarningLabelText);
         Preferences.Set("TtsAlertText", TtsAlertText);
+        Preferences.Set("AutoActivateMonitoring", AutoActivateMonitoring); // New: Save setting
 
         await DisplayAlert("Success", "Options saved!", "OK");
-        await Navigation.PopAsync(); // Return to MainPage
+        await Navigation.PopAsync();
     }
 
     public new event PropertyChangedEventHandler PropertyChanged;

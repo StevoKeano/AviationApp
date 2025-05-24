@@ -45,6 +45,8 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private string ttsAlertText;
     private float messageFrequency;
     private bool showSkull;
+    private bool autoActivateMonitoring; // New: Auto-activate DMMS monitoring
+    private bool suppressWarningsUntilAboveDmms; // New: Suppress warnings at startup
 
     public string LatitudeText
     {
@@ -150,10 +152,12 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         dmmsText = Preferences.Get("DmmsValue", "70");
         warningLabelText = Preferences.Get("WarningLabelText", "Drop below DMMS and DIE!");
         ttsAlertText = Preferences.Get("TtsAlertText", "SPEED CHECK, YOUR GONNA FALL OUTTA THE SKY LIKE A PIANO");
-        messageFrequency = Preferences.Get("MessageFrequency", 5f); // Default 5 seconds
+        messageFrequency = Preferences.Get("MessageFrequency", 5f);
         showSkull = Preferences.Get("ShowSkull", false);
-        showSkullWarning = false; // Initialize to false
-        Log.Debug("MainPage", $"Loaded settings at startup - DmmsText: {dmmsText}, WarningLabelText: {warningLabelText}, TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}, ShowSkull: {showSkull}, ShowSkullWarning: {showSkullWarning}");
+        autoActivateMonitoring = Preferences.Get("AutoActivateMonitoring", true); // New: Default true
+        showSkullWarning = false;
+        suppressWarningsUntilAboveDmms = true; // New: Initialize to suppress until speed check
+        Log.Debug("MainPage", $"Loaded settings at startup - DmmsText: {dmmsText}, WarningLabelText: {warningLabelText}, TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}, ShowSkull: {showSkull}, AutoActivateMonitoring: {autoActivateMonitoring}, ShowSkullWarning: {showSkullWarning}, SuppressWarnings: {suppressWarningsUntilAboveDmms}");
 
         InitializeComponent();
         BindingContext = this;
@@ -218,7 +222,16 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
                 float dmmsKnots = 0f;
                 bool isDmmsValid = IsActive && float.TryParse(DmmsText, out dmmsKnots) && dmmsKnots > 0;
-                if (isDmmsValid && speedKnots < dmmsKnots)
+
+                // Update warning suppression based on speed
+                if (isDmmsValid && speedKnots > dmmsKnots && suppressWarningsUntilAboveDmms)
+                {
+                    suppressWarningsUntilAboveDmms = false;
+                    Log.Debug("MainPage", "Speed exceeded DMMS, enabling normal alerts");
+                }
+
+                // Trigger alerts only if not suppressed
+                if (isDmmsValid && speedKnots < dmmsKnots && !suppressWarningsUntilAboveDmms)
                 {
                     if (!IsFlashing)
                     {
@@ -399,7 +412,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 Log.Debug("MainPage", "TTS: Initial message played at maximum volume");
                 while (!ttsCts.Token.IsCancellationRequested)
                 {
-                    await Task.Delay((int)(messageFrequency * 1000), ttsCts.Token); // Use saved frequency
+                    await Task.Delay((int)(messageFrequency * 1000), ttsCts.Token);
                     if (!ttsCts.Token.IsCancellationRequested)
                     {
                         Log.Debug("MainPage", $"Attempting to play TTS: {ttsAlertText}");
@@ -563,7 +576,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    protected override void OnAppearing()
+    protected override async void OnAppearing()
     {
         base.OnAppearing();
         // Reload settings live
@@ -571,18 +584,23 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         ttsAlertText = Preferences.Get("TtsAlertText", "SPEED CHECK, YOUR GONNA FALL OUTTA THE SKY LIKE A PIANO");
         messageFrequency = Preferences.Get("MessageFrequency", 5f);
         showSkull = Preferences.Get("ShowSkull", false);
-        ShowSkullWarning = IsFlashing && showSkull; // Update skull visibility
+        autoActivateMonitoring = Preferences.Get("AutoActivateMonitoring", true);
+        ShowSkullWarning = IsFlashing && showSkull;
         OnPropertyChanged(nameof(WarningLabelText));
         OnPropertyChanged(nameof(ShowSkullWarning));
-        Log.Debug("MainPage", $"OnAppearing - Reloaded settings: WarningLabelText: {warningLabelText}, TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}, ShowSkull: {showSkull}, ShowSkullWarning: {ShowSkullWarning}");
-    }
+        Log.Debug("MainPage", $"OnAppearing - Reloaded settings: WarningLabelText: {warningLabelText}, TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}, ShowSkull: {showSkull}, AutoActivateMonitoring: {autoActivateMonitoring}, ShowSkullWarning: {ShowSkullWarning}, SuppressWarnings: {suppressWarningsUntilAboveDmms}");
 
-    public new event PropertyChangedEventHandler PropertyChanged;
-    protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
-    {
-        MainThread.BeginInvokeOnMainThread(() =>
+        // Auto-activate DMMS monitoring if enabled
+        if (autoActivateMonitoring && !IsActive)
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        });
+            Log.Debug("MainPage", "Auto-activating DMMS monitoring");
+            await StartLocationService();
+            IsActive = true;
+            ButtonState = ButtonState.Active;
+            CounterBtnBorder.Background = (Brush)Resources["ActiveGradient"];
+            count = 1;
+            CounterBtn.Text = "DMMS Monitoring Started";
+            SemanticScreenReader.Announce(CounterBtn.Text);
+        }
     }
 }
