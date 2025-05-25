@@ -67,11 +67,11 @@
                     Style="{StaticResource SubHeadline}"
                     SemanticProperties.HeadingLevel="Level3"
                     SemanticProperties.Description="" />
-                <Label
+                <!--<Label
                     Text=""
                     Style="{StaticResource SubHeadline}"
                     SemanticProperties.HeadingLevel="Level4"
-                    SemanticProperties.Description="" />
+                    SemanticProperties.Description="" />-->
 
                 <!-- 3D Button -->
                 <Border x:Name="CounterBtnBorder"
@@ -131,15 +131,16 @@
                     Text="{Binding SpeedText}"
                     Style="{StaticResource SubHeadline}"
                     SemanticProperties.HeadingLevel="Level3" />
-                <Label
-                    Text="{Binding LastUpdateText}"
-                    Style="{StaticResource SubHeadline}"
-                    SemanticProperties.HeadingLevel="Level3" />
+
                 <Label
                     x:Name="ClosestAirportLabel"
                     Text="{Binding ClosestAirportText}"
                     Style="{StaticResource SubHeadline}"
                     SemanticProperties.HeadingLevel="Level3" />
+                <Label
+                    Text="{Binding LastUpdateText}"
+                    Style="{StaticResource SubHeadline}"
+                    SemanticProperties.HeadingLevel="Level3" /> 
             </VerticalStackLayout>
         </ScrollView>
     </AbsoluteLayout>

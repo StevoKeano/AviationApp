@@ -54,6 +54,12 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private bool suppressWarningsUntilAboveDmms;
     private string closestAirportText = "Closest Airport: N/A";
     private List<Airport> airports;
+    // New: Track airspeed history for acceleration
+    private readonly List<(DateTime Time, float SpeedKnots)> airspeedHistory = new List<(DateTime, float)>();
+    private const double AccelerationThreshold = 0.5; // knots/s
+    private const double MinAlertSpeed = 40; // knots
+    private const double AirportProximityKm = 5; // km
+    private const double AccelerationWindowSeconds = 2; // seconds
 
     public string LatitudeText
     {
@@ -146,11 +152,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             Log.Debug("MainPage", $"ShowSkullWarning set to: {showSkullWarning}");
         }
     }
-    private void UpdateSkullVisibility()
-    {
-        ShowSkullWarning = IsFlashing && showSkull;
-        Log.Debug("MainPage", $"UpdateSkullVisibility - IsFlashing: {IsFlashing}, ShowSkull: {showSkull}, ShowSkullWarning: {ShowSkullWarning}");
-    }
+
     public string ClosestAirportText
     {
         get => closestAirportText;
@@ -159,10 +161,16 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
     private class Airport
     {
-        public string StationId { get; set; } // Changed from ICAO
-        public string Site { get; set; } // Changed from Name
+        public string StationId { get; set; }
+        public string Site { get; set; }
         public double Latitude { get; set; }
         public double Longitude { get; set; }
+    }
+
+    private void UpdateSkullVisibility()
+    {
+        ShowSkullWarning = IsFlashing && showSkull;
+        Log.Debug("MainPage", $"UpdateSkullVisibility - IsFlashing: {IsFlashing}, ShowSkull: {showSkull}, ShowSkullWarning: {ShowSkullWarning}");
     }
 
     public MainPage()
@@ -240,12 +248,20 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 SpeedText = $"Speed: {speedKnots:F1} knots";
                 LastUpdateText = $"Last Update: {updateTime:HH:mm:ss}";
 
+                // Track airspeed for acceleration
+                airspeedHistory.Add((DateTime.Now, speedKnots));
+                // Keep only last 5 seconds of data
+                airspeedHistory.RemoveAll(x => (DateTime.Now - x.Time).TotalSeconds > 5);
+
                 // Find closest airport
+                bool isNearAirport = false;
                 if (airports.Any())
                 {
                     var closestAirport = FindClosestAirport(location.Latitude, location.Longitude);
                     ClosestAirportText = $"Closest Airport: {closestAirport.StationId} ({closestAirport.Site})";
-                    Log.Debug("MainPage", $"Closest airport: {closestAirport.StationId} at {closestAirport.Latitude},{closestAirport.Longitude}");
+                    double distanceKm = CalculateDistance(location.Latitude, location.Longitude, closestAirport.Latitude, closestAirport.Longitude);
+                    isNearAirport = distanceKm <= AirportProximityKm;
+                    Log.Debug("MainPage", $"Closest airport: {closestAirport.StationId} at {closestAirport.Latitude},{closestAirport.Longitude}, Distance: {distanceKm:F2} km");
                 }
 
                 float speedKmh = (float)(location.Speed.GetValueOrDefault() * 3.6);
@@ -255,21 +271,33 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 float dmmsKnots = 0f;
                 bool isDmmsValid = IsActive && float.TryParse(DmmsText, out dmmsKnots) && dmmsKnots > 0;
 
-                // Update warning suppression based on speed
+                // Update warning suppression
                 if (isDmmsValid && speedKnots > dmmsKnots && suppressWarningsUntilAboveDmms)
                 {
                     suppressWarningsUntilAboveDmms = false;
                     Log.Debug("MainPage", "Speed exceeded DMMS, enabling normal alerts");
                 }
 
-                // Trigger alerts only if not suppressed
-                if (isDmmsValid && speedKnots < dmmsKnots && !suppressWarningsUntilAboveDmms)
+                // Check for acceleration plateau
+                bool isPlateau = false;
+                if (isDmmsValid && speedKnots > MinAlertSpeed && speedKnots < dmmsKnots && isNearAirport)
+                {
+                    isPlateau = IsAccelerationPlateau();
+                    if (isPlateau)
+                    {
+                        Log.Debug("MainPage", $"Acceleration plateau detected at {speedKnots:F1} knots, below DMMS {dmmsKnots:F1}");
+                    }
+                }
+
+                // Trigger alerts
+                if (isDmmsValid && speedKnots < dmmsKnots && (isPlateau || !suppressWarningsUntilAboveDmms))
                 {
                     if (!IsFlashing)
                     {
                         IsFlashing = true;
                         await StartFlashingBackground();
                         BringAppToForeground();
+                        Log.Debug("MainPage", $"Alerts triggered: Speed {speedKnots:F1} < DMMS {dmmsKnots:F1}, Plateau: {isPlateau}");
                     }
                 }
                 else if (IsFlashing)
@@ -282,7 +310,52 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 Log.Error("MainPage", $"Message handler error: {ex.Message}\n{ex.StackTrace}");
                 Debug.WriteLine($"MainPage: Message handler error: {ex.Message}\n{ex.StackTrace}");
             }
-        });
+        }); }
+
+    private bool IsAccelerationPlateau()
+    {
+        if (airspeedHistory.Count < 2)
+        {
+            return false;
+        }
+
+        // Get data within the last AccelerationWindowSeconds
+        var recent = airspeedHistory
+            .Where(x => (DateTime.Now - x.Time).TotalSeconds <= AccelerationWindowSeconds)
+            .OrderBy(x => x.Time)
+            .ToList();
+
+        if (recent.Count < 2)
+        {
+            return false;
+        }
+
+        // Calculate average acceleration
+        double totalAccel = 0;
+        int count = 0;
+        for (int i = 1; i < recent.Count; i++)
+        {
+            var t1 = recent[i - 1].Time;
+            var t2 = recent[i].Time;
+            var s1 = recent[i - 1].SpeedKnots;
+            var s2 = recent[i].SpeedKnots;
+            var deltaT = (t2 - t1).TotalSeconds;
+            if (deltaT > 0)
+            {
+                var accel = (s2 - s1) / deltaT; // knots/s
+                totalAccel += accel;
+                count++;
+            }
+        }
+
+        if (count == 0)
+        {
+            return false;
+        }
+
+        var avgAccel = totalAccel / count;
+        Log.Debug("MainPage", $"Average acceleration: {avgAccel:F2} knots/s");
+        return avgAccel < AccelerationThreshold;
     }
 
     private async Task LoadAirportsAsync()
@@ -299,7 +372,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 var parts = line.Split(',', StringSplitOptions.None);
-                if (parts.Length < 9) continue; // Ensure enough columns
+                if (parts.Length < 9) continue;
                 if (double.TryParse(parts[2], out var lat) && double.TryParse(parts[3], out var lon))
                 {
                     airports.Add(new Airport
@@ -404,7 +477,102 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         await CounterBtnBorder.ScaleTo(0.95, 100);
         await CounterBtnBorder.ScaleTo(1.0, 100);
     }
+    private async Task StopFlashingBackground()
+    {
+        CancellationTokenSource localFlashingCts;
+        CancellationTokenSource localTtsCts;
+        lock (_flashLock)
+        {
+            localFlashingCts = flashingCts;
+            localTtsCts = ttsCts;
+            flashingCts = null;
+            ttsCts = null;
+        }
 
+        if (localFlashingCts != null)
+        {
+            try
+            {
+                localFlashingCts.Cancel();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("MainPage", $"Error cancelling flashingCts: {ex.Message}");
+            }
+            finally
+            {
+                localFlashingCts.Dispose();
+                Log.Debug("MainPage", "Flashing CancellationTokenSource cancelled and disposed");
+            }
+        }
+
+        if (localTtsCts != null)
+        {
+            try
+            {
+                localTtsCts.Cancel();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("MainPage", $"Error cancelling ttsCts: {ex.Message}");
+            }
+            finally
+            {
+                localTtsCts.Dispose();
+                Log.Debug("MainPage", "TTS CancellationTokenSource cancelled and disposed");
+            }
+        }
+
+        if (_flashingTask != null)
+        {
+            try
+            {
+                await _flashingTask;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("MainPage", $"Error awaiting flashing task: {ex.Message}");
+            }
+            _flashingTask = null;
+        }
+
+        if (_ttsTask != null)
+        {
+            try
+            {
+                await _ttsTask;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("MainPage", $"Error awaiting TTS task: {ex.Message}");
+            }
+            _ttsTask = null;
+        }
+
+#if ANDROID
+        try
+        {
+            if (_originalMediaVolume != -1)
+            {
+                var audioManager = (Android.Media.AudioManager)Android.App.Application.Context.GetSystemService(Context.AudioService);
+                audioManager.SetStreamVolume(Android.Media.Stream.Music, _originalMediaVolume, 0);
+                Log.Debug("MainPage", $"Restored media volume to original: {_originalMediaVolume}");
+                _originalMediaVolume = -1;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("MainPage", $"Failed to restore media volume: {ex.Message}\n{ex.StackTrace}");
+        }
+#endif
+
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            IsFlashing = false;
+            PageBackground = Colors.Transparent;
+        });
+        Log.Debug("MainPage", "Flashing and TTS stopped");
+    }
     private async Task StartFlashingBackground()
     {
         lock (_flashLock)
@@ -418,11 +586,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             ttsCts?.Dispose();
             flashingCts = new CancellationTokenSource();
             ttsCts = new CancellationTokenSource();
+            Log.Debug("MainPage", $"Created flashingCts: {flashingCts.GetHashCode()}, ttsCts: {ttsCts.GetHashCode()}");
             IsFlashing = true;
-            Log.Debug("MainPage", "New CancellationTokenSource created for flashing and TTS");
         }
 
-        // Set media volume to maximum (Android-specific)
 #if ANDROID
         try
         {
@@ -438,23 +605,18 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
 #endif
 
-        // Start flashing and TTS concurrently
         Log.Debug("MainPage", $"Starting flashing and TTS tasks with TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}");
+        var flashingToken = flashingCts.Token;
         _flashingTask = Task.Run(async () =>
         {
             try
             {
-                if (flashingCts == null)
-                {
-                    Log.Error("MainPage", "Flashing task started with null flashingCts");
-                    return;
-                }
-                while (!flashingCts.Token.IsCancellationRequested)
+                while (!flashingToken.IsCancellationRequested)
                 {
                     MainThread.BeginInvokeOnMainThread(() => PageBackground = Colors.Red.WithAlpha(0.8f));
-                    await Task.Delay(500, flashingCts.Token);
+                    await Task.Delay(500, flashingToken);
                     MainThread.BeginInvokeOnMainThread(() => PageBackground = Colors.Transparent);
-                    await Task.Delay(500, flashingCts.Token); // Fixed typo
+                    await Task.Delay(500, flashingToken);
                 }
             }
             catch (TaskCanceledException)
@@ -480,33 +642,28 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     Log.Debug("MainPage", "Flashing task cleaned up");
                 }
             }
-        }, flashingCts.Token);
+        }, flashingToken);
 
+        var ttsToken = ttsCts.Token;
         _ttsTask = Task.Run(async () =>
         {
             try
             {
-                if (ttsCts == null)
-                {
-                    Log.Error("MainPage", "TTS task started with null ttsCts");
-                    return;
-                }
-                Log.Debug("MainPage", "Starting TTS loop");
                 await TextToSpeech.Default.SpeakAsync(
                     ttsAlertText,
                     new SpeechOptions { Volume = 1.0f },
-                    ttsCts.Token);
+                    ttsToken);
                 Log.Debug("MainPage", "TTS: Initial message played at maximum volume");
-                while (!ttsCts.Token.IsCancellationRequested)
+                while (!ttsToken.IsCancellationRequested)
                 {
-                    await Task.Delay((int)(messageFrequency * 1000), ttsCts.Token);
-                    if (!ttsCts.Token.IsCancellationRequested)
+                    await Task.Delay((int)(messageFrequency * 1000), ttsToken);
+                    if (!ttsToken.IsCancellationRequested)
                     {
                         Log.Debug("MainPage", $"Attempting to play TTS: {ttsAlertText}");
                         await TextToSpeech.Default.SpeakAsync(
                             ttsAlertText,
                             new SpeechOptions { Volume = 1.0f },
-                            ttsCts.Token);
+                            ttsToken);
                         Log.Debug("MainPage", "TTS: Played message at maximum volume");
                     }
                 }
@@ -529,63 +686,189 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     Log.Debug("MainPage", "TTS task cleaned up");
                 }
             }
-        }, ttsCts.Token);
+        }, ttsToken);
     }
+    //    private async Task StartFlashingBackground()
+    //    {
+    //        lock (_flashLock)
+    //        {
+    //            if (IsFlashing && flashingCts != null && !flashingCts.IsCancellationRequested)
+    //            {
+    //                Log.Debug("MainPage", "Flashing already active, skipping start");
+    //                return;
+    //            }
+    //            flashingCts?.Dispose();
+    //            ttsCts?.Dispose();
+    //            flashingCts = new CancellationTokenSource();
+    //            ttsCts = new CancellationTokenSource();
+    //            IsFlashing = true;
+    //            Log.Debug("MainPage", "New CancellationTokenSource created for flashing and TTS");
+    //        }
 
-    private async Task StopFlashingBackground()
-    {
-        lock (_flashLock)
-        {
-            if (flashingCts != null)
-            {
-                flashingCts.Cancel();
-                flashingCts.Dispose();
-                flashingCts = null;
-                Log.Debug("MainPage", "Flashing CancellationTokenSource cancelled and disposed");
-            }
-            if (ttsCts != null)
-            {
-                ttsCts.Cancel();
-                ttsCts.Dispose();
-                ttsCts = null;
-                Log.Debug("MainPage", "TTS CancellationTokenSource cancelled and disposed");
-            }
-        }
+    //        // Set media volume to maximum (Android-specific)
+    //#if ANDROID
+    //        try
+    //        {
+    //            var audioManager = (Android.Media.AudioManager)Android.App.Application.Context.GetSystemService(Context.AudioService);
+    //            _originalMediaVolume = audioManager.GetStreamVolume(Android.Media.Stream.Music);
+    //            int maxVolume = audioManager.GetStreamMaxVolume(Android.Media.Stream.Music);
+    //            audioManager.SetStreamVolume(Android.Media.Stream.Music, maxVolume, 0);
+    //            Log.Debug("MainPage", $"Captured original media volume: {_originalMediaVolume}, set to maximum: {maxVolume}");
+    //        }
+    //        catch (Exception ex)
+    //        {
+    //            Log.Error("MainPage", $"Failed to capture or set media volume: {ex.Message}\n{ex.StackTrace}");
+    //        }
+    //#endif
 
-        if (_flashingTask != null)
-        {
-            await _flashingTask;
-        }
-        if (_ttsTask != null)
-        {
-            await _ttsTask;
-        }
+    //        // Start flashing and TTS concurrently
+    //        Log.Debug("MainPage", $"Starting flashing and TTS tasks with TtsAlertText: {ttsAlertText}, MessageFrequency: {messageFrequency}");
+    //        _flashingTask = Task.Run(async () =>
+    //        {
+    //            try
+    //            {
+    //                if (flashingCts == null)
+    //                {
+    //                    Log.Error("MainPage", "Flashing task started with null flashingCts");
+    //                    return;
+    //                }
+    //                while (!flashingCts.Token.IsCancellationRequested)
+    //                {
+    //                    MainThread.BeginInvokeOnMainThread(() => PageBackground = Colors.Red.WithAlpha(0.8f));
+    //                    await Task.Delay(500, flashingCts.Token);
+    //                    MainThread.BeginInvokeOnMainThread(() => PageBackground = Colors.Transparent);
+    //                    await Task.Delay(500, flashingCts.Token);
+    //                }
+    //            }
+    //            catch (TaskCanceledException)
+    //            {
+    //                Log.Debug("MainPage", "Flashing task cancelled");
+    //            }
+    //            catch (Exception ex)
+    //            {
+    //                Log.Error("MainPage", $"Flashing error: {ex.Message}\n{ex.StackTrace}");
+    //            }
+    //            finally
+    //            {
+    //                lock (_flashLock)
+    //                {
+    //                    MainThread.BeginInvokeOnMainThread(() =>
+    //                    {
+    //                        PageBackground = Colors.Transparent;
+    //                        IsFlashing = false;
+    //                    });
+    //                    flashingCts?.Dispose();
+    //                    flashingCts = null;
+    //                    _flashingTask = null;
+    //                    Log.Debug("MainPage", "Flashing task cleaned up");
+    //                }
+    //            }
+    //        }, flashingCts.Token);
 
-        // Restore original media volume (Android-specific)
-#if ANDROID
-        try
-        {
-            if (_originalMediaVolume != -1)
-            {
-                var audioManager = (Android.Media.AudioManager)Android.App.Application.Context.GetSystemService(Context.AudioService);
-                audioManager.SetStreamVolume(Android.Media.Stream.Music, _originalMediaVolume, 0);
-                Log.Debug("MainPage", $"Restored media volume to original: {_originalMediaVolume}");
-                _originalMediaVolume = -1;
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error("MainPage", $"Failed to restore media volume: {ex.Message}\n{ex.StackTrace}");
-        }
-#endif
+    //        _ttsTask = Task.Run(async () =>
+    //        {
+    //            try
+    //            {
+    //                if (ttsCts == null)
+    //                {
+    //                    Log.Error("MainPage", "TTS task started with null ttsCts");
+    //                    return;
+    //                }
+    //                Log.Debug("MainPage", "Starting TTS loop");
+    //                await TextToSpeech.Default.SpeakAsync(
+    //                    ttsAlertText,
+    //                    new SpeechOptions { Volume = 1.0f },
+    //                    ttsCts.Token);
+    //                Log.Debug("MainPage", "TTS: Initial message played at maximum volume");
+    //                while (!ttsCts.Token.IsCancellationRequested)
+    //                {
+    //                    await Task.Delay((int)(messageFrequency * 1000), ttsCts.Token);
+    //                    if (!ttsCts.Token.IsCancellationRequested)
+    //                    {
+    //                        Log.Debug("MainPage", $"Attempting to play TTS: {ttsAlertText}");
+    //                        await TextToSpeech.Default.SpeakAsync(
+    //                            ttsAlertText,
+    //                            new SpeechOptions { Volume = 1.0f },
+    //                            ttsCts.Token);
+    //                        Log.Debug("MainPage", "TTS: Played message at maximum volume");
+    //                    }
+    //                }
+    //            }
+    //            catch (TaskCanceledException)
+    //            {
+    //                Log.Debug("MainPage", "TTS task cancelled");
+    //            }
+    //            catch (Exception ex)
+    //            {
+    //                Log.Error("MainPage", $"TTS error: {ex.Message}\n{ex.StackTrace}");
+    //            }
+    //            finally
+    //            {
+    //                lock (_flashLock)
+    //                {
+    //                    ttsCts?.Dispose();
+    //                    ttsCts = null;
+    //                    _ttsTask = null;
+    //                    Log.Debug("MainPage", "TTS task cleaned up");
+    //                }
+    //            }
+    //        }, ttsCts.Token);
+    //    }
 
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            IsFlashing = false;
-            PageBackground = Colors.Transparent;
-        });
-        Log.Debug("MainPage", "Flashing and TTS stopped");
-    }
+    //    private async Task StopFlashingBackground()
+    //    {
+    //        lock (_flashLock)
+    //        {
+    //            if (flashingCts != null)
+    //            {
+    //                flashingCts.Cancel();
+    //                flashingCts.Dispose();
+    //                flashingCts = null;
+    //                Log.Debug("MainPage", "Flashing CancellationTokenSource cancelled and disposed");
+    //            }
+    //            if (ttsCts != null)
+    //            {
+    //                ttsCts.Cancel();
+    //                ttsCts.Dispose();
+    //                ttsCts = null;
+    //                Log.Debug("MainPage", "TTS CancellationTokenSource cancelled and disposed");
+    //            }
+    //        }
+
+    //        if (_flashingTask != null)
+    //        {
+    //            await _flashingTask;
+    //        }
+    //        if (_ttsTask != null)
+    //        {
+    //            await _ttsTask;
+    //        }
+
+    //        // Restore original media volume (Android-specific)
+    //#if ANDROID
+    //        try
+    //        {
+    //            if (_originalMediaVolume != -1)
+    //            {
+    //                var audioManager = (Android.Media.AudioManager)Android.App.Application.Context.GetSystemService(Context.AudioService);
+    //                audioManager.SetStreamVolume(Android.Media.Stream.Music, _originalMediaVolume, 0);
+    //                Log.Debug("MainPage", $"Restored media volume to original: {_originalMediaVolume}");
+    //                _originalMediaVolume = -1;
+    //            }
+    //        }
+    //        catch (Exception ex)
+    //        {
+    //            Log.Error("MainPage", $"Failed to restore media volume: {ex.Message}\n{ex.StackTrace}");
+    //        }
+    //#endif
+
+    //        MainThread.BeginInvokeOnMainThread(() =>
+    //        {
+    //            IsFlashing = false;
+    //            PageBackground = Colors.Transparent;
+    //        });
+    //        Log.Debug("MainPage", "Flashing and TTS stopped");
+    //    }
 
     private void BringAppToForeground()
     {
